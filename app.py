@@ -18,7 +18,7 @@ HEADERS = {
 bot = telebot.TeleBot(TOKEN_TELEGRAM, threaded=False)
 app = Flask(__name__)
 
-# Configuración automática del Webhook
+# Configuración automática del Webhook (Esto conecta Telegram y Render solo)
 if URL_PROYECTO and TOKEN_TELEGRAM:
     webhook_url = f"{URL_PROYECTO}/{TOKEN_TELEGRAM}"
     bot.remove_webhook()
@@ -46,15 +46,11 @@ def obtener_respuesta_ia(texto_usuario):
         if response.status_code == 200:
             datos = response.json()
             return datos['choices'][0]['message']['content'].strip()
-        
-        error_json = response.json()
-        mensaje_error = error_json.get('error', {}).get('message', 'Error desconocido')
-        return f"❌ Error Groq {response.status_code}: {mensaje_error}"
+        return f"❌ Error Groq {response.status_code}"
     except Exception as e:
-        return f"⚠️ Error de conexión: {str(e)}"
+        return f"⚠️ Error: {str(e)}"
 
 # --- RUTAS FLASK ---
-
 @app.route('/')
 def index():
     return "Agente Nova Online (Motor: Groq)", 200
@@ -67,8 +63,6 @@ def webhook():
         bot.process_new_updates([update])
         return '', 200
     return 'Forbidden', 403
-
-# --- MANEJADOR DE TELEGRAM ---
 
 @bot.message_handler(func=lambda message: True)
 def responder(message):
