@@ -3,7 +3,6 @@ import telebot
 from groq import Groq
 from flask import Flask, request
 
-# Configuración de variables de entorno
 TOKEN = os.environ.get('TELEGRAM_TOKEN')
 GROQ_KEY = os.environ.get('GROQ_API_KEY')
 
@@ -35,11 +34,9 @@ def getMessage():
     return "!", 200
 
 @app.route("/")
-def webhook():
-    bot.remove_webhook()
+def home():
     return "Bot de Tutorial Operativo", 200
 
-# BLOQUE FINAL OBLIGATORIO PARA RENDER + GUNICORN (PUERTO 10000)
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
