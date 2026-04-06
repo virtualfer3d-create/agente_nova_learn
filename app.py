@@ -1,44 +1,82 @@
 import os
+import requests
 import telebot
-from groq import Groq
 from flask import Flask, request
 
-TOKEN = os.environ.get('TELEGRAM_TOKEN')
-GROQ_KEY = os.environ.get('GROQ_API_KEY')
+# 1. Configuración de Variables (Render)
+TOKEN_TELEGRAM = os.environ.get('TOKEN_TELEGRAM')
+GROQ_API_KEY = os.environ.get('GROQ_API_KEY')
+URL_PROYECTO = os.environ.get('URL_PROYECTO')
 
-bot = telebot.TeleBot(TOKEN)
-client = Groq(api_key=GROQ_KEY)
+# 2. Configuración de la API de Groq
+API_URL = "https://api.groq.com/openai/v1/chat/completions"
+HEADERS = {
+    "Authorization": f"Bearer {GROQ_API_KEY}",
+    "Content-Type": "application/json"
+}
+
+bot = telebot.TeleBot(TOKEN_TELEGRAM, threaded=False)
 app = Flask(__name__)
 
-@bot.message_handler(commands=['start', 'help'])
-def send_welcome(message):
-    bot.reply_to(message, "¡Hola! Soy tu nuevo Agente IA creado con el Método Nova. ¿En qué puedo ayudarte?")
+# Configuración automática del Webhook
+if URL_PROYECTO and TOKEN_TELEGRAM:
+    webhook_url = f"{URL_PROYECTO}/{TOKEN_TELEGRAM}"
+    bot.remove_webhook()
+    bot.set_webhook(url=webhook_url)
+
+def obtener_respuesta_ia(texto_usuario):
+    payload = {
+        "model": "llama-3.1-8b-instant",
+        "messages": [
+            {
+                "role": "system", 
+                "content": "Eres Nova, un agente inteligente. Responde siempre en español de forma muy breve y amigable."
+            },
+            {
+                "role": "user", 
+                "content": texto_usuario
+            }
+        ],
+        "temperature": 0.7,
+        "max_tokens": 500
+    }
+    
+    try:
+        response = requests.post(API_URL, headers=HEADERS, json=payload, timeout=20)
+        if response.status_code == 200:
+            datos = response.json()
+            return datos['choices'][0]['message']['content'].strip()
+        
+        error_json = response.json()
+        mensaje_error = error_json.get('error', {}).get('message', 'Error desconocido')
+        return f"❌ Error Groq {response.status_code}: {mensaje_error}"
+    except Exception as e:
+        return f"⚠️ Error de conexión: {str(e)}"
+
+# --- RUTAS FLASK ---
+
+@app.route('/')
+def index():
+    return "Agente Nova Online (Motor: Groq)", 200
+
+@app.route('/' + TOKEN_TELEGRAM, methods=['POST'])
+def webhook():
+    if request.headers.get('content-type') == 'application/json':
+        json_string = request.get_data().decode('utf-8')
+        update = telebot.types.Update.de_json(json_string)
+        bot.process_new_updates([update])
+        return '', 200
+    return 'Forbidden', 403
+
+# --- MANEJADOR DE TELEGRAM ---
 
 @bot.message_handler(func=lambda message: True)
-def handle_message(message):
-    try:
-        chat_completion = client.chat.completions.create(
-            messages=[{"role": "user", "content": message.text}],
-            model="llama3-8b-8192",
-        )
-        response = chat_completion.choices[0].message.content
-        bot.reply_to(message, response)
-    except Exception:
-        bot.reply_to(message, "Ups, algo ha fallado. Revisa tus claves en Render.")
-
-@app.route('/' + TOKEN, methods=['POST'])
-def getMessage():
-    json_string = request.get_data().decode('utf-8')
-    update = telebot.types.Update.de_json(json_string)
-    bot.process_new_updates([update])
-    return "!", 200
-
-@app.route("/")
-def home():
-    return "Bot de Tutorial Operativo", 200
+def responder(message):
+    bot.send_chat_action(message.chat.id, 'typing')
+    respuesta = obtener_respuesta_ia(message.text)
+    bot.reply_to(message, respuesta)
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
-
 
