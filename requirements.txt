@@ -1,4 +1,5 @@
-pyTelegramBotAPI
-groq
-gunicorn
 flask
+pyTelegramBotAPI
+requests
+gunicorn
+groq
