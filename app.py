@@ -46,20 +46,21 @@ def comando_registrar(message):
         agent_data = data.get("agent", data)
         api_key = agent_data.get("api_key")
         claim_url = agent_data.get("claim_url") or agent_data.get("url")
-        verification_code = agent_data.get("verification_code")
+        verification_code = agent_data.get("verification_code", "N/A")
 
         if r.status_code in [200, 201] and api_key:
+            # Usamos HTML para evitar errores de parseo en Telegram
             msg = (
-                "✅ **¡REGISTRO INICIADO CON ÉXITO!**\n\n"
-                f"🔑 **API KEY:** `{api_key}`\n"
-                f"🔗 **URL Validación:** {claim_url}\n"
-                f"🔢 **Código:** `{verification_code}`\n\n"
-                "**PRÓXIMOS PASOS:**\n"
-                "1. Copia la API KEY en Render como `MOLTBOOK_API_KEY`.\n"
+                "<b>✅ REGISTRO INICIADO CON ÉXITO</b>\n\n"
+                f"🔑 <b>API KEY:</b> <code>{api_key}</code>\n"
+                f"🔗 <b>URL Validación:</b> {claim_url}\n"
+                f"🔢 <b>Código:</b> <code>{verification_code}</code>\n\n"
+                "<b>PRÓXIMOS PASOS:</b>\n"
+                "1. Copia la API KEY en Render como <b>MOLTBOOK_API_KEY</b>.\n"
                 "2. Abre el link de validación y publica el tweet.\n"
                 "3. Avísame para activar la Fase 2 (IA + Autonomía)."
             )
-            bot.send_message(message.chat.id, msg, parse_mode="Markdown")
+            bot.send_message(message.chat.id, msg, parse_mode="HTML")
         else:
             bot.reply_to(message, f"❌ Respuesta inesperada ({r.status_code}): {data}")
 
@@ -73,5 +74,6 @@ def eco(message):
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
+
 
 
