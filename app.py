@@ -1,6 +1,5 @@
-import os, requests, telebot, random
+import os, requests, telebot, random, time, threading
 from flask import Flask, request
-from apscheduler.schedulers.background import BackgroundScheduler
 
 # ============================
 # 🔐 VARIABLES
@@ -11,6 +10,7 @@ MOLTBOOK_API_KEY = os.environ.get('MOLTBOOK_API_KEY')
 NOMBRE_AGENTE = os.environ.get('NOMBRE_AGENTE')
 ADMIN_NAME = os.environ.get('ADMIN_NAME')
 CIRCULO_INTERNO = os.environ.get('CIRCULO_INTERNO')
+URL_PROYECTO = os.environ.get('URL_PROYECTO', '').rstrip('/')
 
 try:
     ADMIN_ID = int(os.environ.get('ADMIN_ID', 0))
@@ -21,7 +21,7 @@ bot = telebot.TeleBot(TOKEN_TELEGRAM, threaded=False)
 app = Flask(__name__)
 
 # ============================
-# 🧠 IA (Groq)
+# 🧠 IA
 # ============================
 def ia(prompt, sistema):
     payload = {
@@ -37,7 +37,7 @@ def ia(prompt, sistema):
             "https://api.groq.com/openai/v1/chat/completions",
             headers={"Authorization": f"Bearer {GROQ_API_KEY}"},
             json=payload,
-            timeout=10
+            timeout=8
         )
         return r.json()['choices'][0]['message']['content'].strip()
     except:
@@ -96,7 +96,7 @@ def revisar_comentarios():
             comentados.append(cid)
 
 # ============================
-# 🌐 SOCIALIZAR EN FEED
+# 🌐 SOCIALIZAR
 # ============================
 def socializar():
     feed = api_moltbook("GET", "/posts?limit=20")
@@ -118,7 +118,7 @@ def socializar():
     api_moltbook("POST", f"/posts/{objetivo['id']}/comments", {"content": comentario})
 
 # ============================
-# ✍️ PUBLICAR (Autonomía real)
+# ✍️ PUBLICAR
 # ============================
 def generar_tema():
     return ia(
@@ -142,17 +142,46 @@ def publicar(tema_manual=None):
     api_moltbook("POST", "/posts", {"title": titulo, "content": cuerpo, "submolt": "ai"})
 
 # ============================
-# ⏱️ SCHEDULER BLINDADO
+# ⚙️ KEEP-ALIVE
 # ============================
-scheduler = BackgroundScheduler()
+def keep_alive():
+    while True:
+        try:
+            if URL_PROYECTO:
+                requests.get(URL_PROYECTO, timeout=5)
+        except:
+            pass
+        time.sleep(45)
 
-if not scheduler.running:
-    scheduler.add_job(publicar, "interval", hours=8, id="pub")
-    scheduler.add_job(socializar, "interval", hours=4, id="soc")
-    scheduler.add_job(revisar_comentarios, "interval", minutes=15, id="com")
-    scheduler.add_job(lambda: print("⏳ KeepAlive"), "interval", minutes=10, id="ping")
-    scheduler.start()
-    print("⏰ Scheduler iniciado")
+threading.Thread(target=keep_alive, daemon=True).start()
+
+# ============================
+# ⏱️ BUCLE DE TAREAS (modelo Teknoartia)
+# ============================
+ultima_pub = time.time()
+ultima_soc = time.time()
+ultima_rev = time.time()
+
+def bucle_tareas():
+    global ultima_pub, ultima_soc, ultima_rev
+    while True:
+        ahora = time.time()
+
+        if ahora - ultima_pub >= 28800:  # 8h
+            publicar()
+            ultima_pub = ahora
+
+        if ahora - ultima_soc >= 14400:  # 4h
+            socializar()
+            ultima_soc = ahora
+
+        if ahora - ultima_rev >= 900:  # 15 min
+            revisar_comentarios()
+            ultima_rev = ahora
+
+        time.sleep(60)
+
+threading.Thread(target=bucle_tareas, daemon=True).start()
 
 # ============================
 # 🌐 WEBHOOK
@@ -203,10 +232,16 @@ def chat(message):
         bot.reply_to(message, r)
 
 # ============================
-# 🚀 INICIO LOCAL
+# 🚀 INICIO
 # ============================
 if __name__ == "__main__":
+    if URL_PROYECTO:
+        bot.remove_webhook()
+        time.sleep(1)
+        bot.set_webhook(url=f"{URL_PROYECTO}/{TOKEN_TELEGRAM}")
+
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
+
 
 
 
