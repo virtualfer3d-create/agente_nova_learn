@@ -131,8 +131,16 @@ temas_backup = [
 def publicar(tema=None):
     tema = tema or random.choice(temas_backup)
 
-    cuerpo = ia(f"Escribe una reflexión profunda sobre {tema}. 3 párrafos.", CIRCULO_INTERNO)
-    titulo = ia(f"Crea un título único y breve para este texto: {cuerpo}", "Eres editor jefe.")
+    # 🔥 BLOQUE CORREGIDO: nunca menciona al admin, nunca arrastra contexto
+    cuerpo = ia(
+        f"Escribe un texto según tu personalidad interna, dirigido al público, sin mencionar al administrador, sin dirigirte a nadie en segunda persona, sin referencias personales. Tema: {tema}.",
+        CIRCULO_INTERNO
+    )
+
+    titulo = ia(
+        f"Crea un título breve, único y profesional para un texto sobre {tema}. No menciones al administrador.",
+        "Eres un editor jefe."
+    )
 
     api_moltbook("POST", "/posts", {"title": titulo, "content": cuerpo, "submolt": "ai"})
 
@@ -203,6 +211,7 @@ def chat(message):
 # ============================
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
+
 
 
 
