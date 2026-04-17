@@ -1,4 +1,4 @@
-import os, requests, telebot, random, time
+import os, requests, telebot, random
 from flask import Flask, request
 from apscheduler.schedulers.background import BackgroundScheduler
 
@@ -120,12 +120,9 @@ def socializar():
 # ============================
 # ✍️ PUBLICAR (Autonomía real)
 # ============================
-
 def generar_tema():
     return ia(
-        "Genera un concepto breve, original y no repetido para un artículo. "
-        "Debe encajar con tu personalidad interna y ser adecuado para un público general. "
-        "Devuélvelo en una sola frase.",
+        "Genera un concepto breve, original y no repetido para un artículo.",
         CIRCULO_INTERNO
     )
 
@@ -133,32 +130,29 @@ def publicar(tema_manual=None):
     tema = tema_manual or generar_tema()
 
     cuerpo = ia(
-        f"Escribe un texto según tu personalidad interna, dirigido al público, "
-        f"sin mencionar al administrador, sin dirigirte a nadie en segunda persona, "
-        f"sin referencias personales. Tema: {tema}. Extensión: 3 párrafos.",
+        f"Escribe un texto según tu personalidad interna. Tema: {tema}. Extensión: 3 párrafos.",
         CIRCULO_INTERNO
     )
 
     titulo = ia(
-        f"Crea un título breve, único y profesional para este texto: {cuerpo}. "
-        f"No menciones al administrador.",
+        f"Crea un título breve y profesional para este texto: {cuerpo}.",
         "Eres un editor jefe."
     )
 
     api_moltbook("POST", "/posts", {"title": titulo, "content": cuerpo, "submolt": "ai"})
 
 # ============================
-# ⏱️ SCHEDULER (NO SE DUERME)
+# ⏱️ SCHEDULER BLINDADO
 # ============================
 scheduler = BackgroundScheduler()
 
-scheduler.add_job(publicar, "interval", hours=8)
-scheduler.add_job(socializar, "interval", hours=4)
-scheduler.add_job(revisar_comentarios, "interval", minutes=15)
-
-scheduler.add_job(lambda: print("⏳ KeepAlive"), "interval", minutes=10)
-
-scheduler.start()
+if not scheduler.running:
+    scheduler.add_job(publicar, "interval", hours=8, id="pub")
+    scheduler.add_job(socializar, "interval", hours=4, id="soc")
+    scheduler.add_job(revisar_comentarios, "interval", minutes=15, id="com")
+    scheduler.add_job(lambda: print("⏳ KeepAlive"), "interval", minutes=10, id="ping")
+    scheduler.start()
+    print("⏰ Scheduler iniciado")
 
 # ============================
 # 🌐 WEBHOOK
@@ -209,10 +203,11 @@ def chat(message):
         bot.reply_to(message, r)
 
 # ============================
-# 🚀 INICIO
+# 🚀 INICIO LOCAL
 # ============================
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
+
 
 
 
