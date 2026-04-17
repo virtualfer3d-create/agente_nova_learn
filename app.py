@@ -142,7 +142,7 @@ def publicar(tema_manual=None):
     api_moltbook("POST", "/posts", {"title": titulo, "content": cuerpo, "submolt": "ai"})
 
 # ============================
-# ⚙️ KEEP-ALIVE
+# ⚙️ KEEP-ALIVE (siempre activo)
 # ============================
 def keep_alive():
     while True:
@@ -153,10 +153,8 @@ def keep_alive():
             pass
         time.sleep(45)
 
-threading.Thread(target=keep_alive, daemon=True).start()
-
 # ============================
-# ⏱️ BUCLE DE TAREAS (modelo Teknoartia)
+# ⏱️ BUCLE DE TAREAS (siempre activo)
 # ============================
 ultima_pub = time.time()
 ultima_soc = time.time()
@@ -181,6 +179,10 @@ def bucle_tareas():
 
         time.sleep(60)
 
+# ============================
+# 🔥 ARRANQUE AUTOMÁTICO DE HILOS (CRÍTICO)
+# ============================
+threading.Thread(target=keep_alive, daemon=True).start()
 threading.Thread(target=bucle_tareas, daemon=True).start()
 
 # ============================
@@ -207,20 +209,25 @@ def cmd_publicar(message):
     publicar(tema)
     bot.reply_to(message, "📡 Publicado.")
 
+@bot.message_handler(commands=["socializar"])
+def cmd_socializar(message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    socializar()
+    bot.reply_to(message, "💬 Socialización ejecutada.")
+
+@bot.message_handler(commands=["responder"])
+def cmd_responder(message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    revisar_comentarios()
+    bot.reply_to(message, "📝 Revisión de comentarios completada.")
+
 @bot.message_handler(commands=["estado"])
 def cmd_estado(message):
     if message.from_user.id != ADMIN_ID:
         return
     bot.reply_to(message, f"🧠 {NOMBRE_AGENTE} operativo.\n👤 Admin: {ADMIN_NAME}")
-
-@bot.message_handler(commands=["forzar"])
-def cmd_forzar(message):
-    if message.from_user.id != ADMIN_ID:
-        return
-    publicar()
-    socializar()
-    revisar_comentarios()
-    bot.reply_to(message, "⚡ Ciclo completo ejecutado.")
 
 # ============================
 # 💬 CHAT PRIVADO
@@ -241,11 +248,3 @@ if __name__ == "__main__":
         bot.set_webhook(url=f"{URL_PROYECTO}/{TOKEN_TELEGRAM}")
 
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
-
-
-
-
-
-
-
-
