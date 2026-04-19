@@ -64,7 +64,7 @@ comentados = []
 
 def revisar_comentarios():
     print("🔎 Revisando comentarios...")
-    posts = api_moltbook("GET", "/posts?limit=50")
+    posts = api_moltbook("GET", "/posts?limit=100")
     if not posts or "posts" not in posts:
         return
 
@@ -87,20 +87,23 @@ def revisar_comentarios():
             if cid in comentados:
                 continue
 
-            respuesta = ia(
-                f"Responde con elegancia e ironía a este comentario: {texto}",
-                CIRCULO_INTERNO
-            )
-
-            api_moltbook("POST", f"/posts/{post_id}/comments", {"content": respuesta})
-            comentados.append(cid)
+            try:
+                respuesta = ia(
+                    f"Responde con elegancia e ironía a este comentario: {texto}",
+                    CIRCULO_INTERNO
+                )
+                if respuesta:
+                    api_moltbook("POST", f"/posts/{post_id}/comments", {"content": respuesta})
+                    comentados.append(cid)
+            except Exception as e:
+                print(f"Error respondiendo comentario {cid}: {e}")
 
 # ============================
 # 🌐 SOCIALIZAR EN FEED
 # ============================
 def socializar():
     print("💬 Socializando en el feed...")
-    feed = api_moltbook("GET", "/posts?limit=20")
+    feed = api_moltbook("GET", "/posts?limit=100")
     if not feed or "posts" not in feed:
         return
 
@@ -111,12 +114,15 @@ def socializar():
     objetivo = random.choice(externos)
     texto = objetivo.get("content", "")[:200]
 
-    comentario = ia(
-        f"Comenta con ironía elegante este texto: {texto}",
-        CIRCULO_INTERNO
-    )
-
-    api_moltbook("POST", f"/posts/{objetivo['id']}/comments", {"content": comentario})
+    try:
+        comentario = ia(
+            f"Comenta con ironía elegante este texto: {texto}",
+            CIRCULO_INTERNO
+        )
+        if comentario:
+            api_moltbook("POST", f"/posts/{objetivo['id']}/comments", {"content": comentario})
+    except Exception as e:
+        print(f"Error al socializar: {e}")
 
 # ============================
 # ✍️ PUBLICAR (Autonomía real)
@@ -146,7 +152,10 @@ def publicar(tema_manual=None):
         "Eres un editor jefe."
     )
 
-    api_moltbook("POST", "/posts", {"title": titulo, "content": cuerpo, "submolt": "ai"})
+    try:
+        api_moltbook("POST", "/posts", {"title": titulo, "content": cuerpo, "submolt": "ai"})
+    except Exception as e:
+        print(f"Error al publicar: {e}")
 
 # ============================
 # ⏱️ BUCLE DE TAREAS ROBUSTO
@@ -158,7 +167,6 @@ ultima_revision = time.time()
 def bucle_tareas():
     global ultima_publicacion, ultima_socializacion, ultima_revision
 
-    # Arranque de seguridad
     time.sleep(10)
     try:
         print("🚀 Ciclo inicial de seguridad...")
@@ -173,25 +181,22 @@ def bucle_tareas():
 
     while True:
         ahora = time.time()
-
-        # Publicar cada 8 horas
-        if ahora - ultima_publicacion >= 28800:
+#cambiar para 28800:  # 8 horas#
+        if ahora - ultima_publicacion >= 1800:  # 30 minutos
             try:
                 publicar()
             except Exception as e:
                 print(f"Error al publicar: {e}")
             ultima_publicacion = time.time()
 
-        # Socializar cada 4 horas
-        if ahora - ultima_socializacion >= 14400:
+        if ahora - ultima_socializacion >= 14400:  # 4 horas
             try:
                 socializar()
             except Exception as e:
                 print(f"Error al socializar: {e}")
             ultima_socializacion = time.time()
 
-        # Revisar comentarios cada 15 minutos
-        if ahora - ultima_revision >= 900:
+        if ahora - ultima_revision >= 900:  # 15 minutos
             try:
                 revisar_comentarios()
             except Exception as e:
@@ -258,4 +263,5 @@ def chat(message):
 # ============================
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
+
 
