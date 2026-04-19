@@ -133,26 +133,25 @@ def generar_tema():
     )
 
 def publicar(tema_manual=None):
+    print("PUBLICANDO…")
     tema = tema_manual or generar_tema()
-
     cuerpo = ia(
         f"Escribe un texto según tu personalidad interna, sin mencionar al administrador, "
         f"sin dirigirte a nadie en segunda persona. Tema: {tema}. Extensión: 3 párrafos.",
         CIRCULO_INTERNO
     )
-
     titulo = ia(
         f"Crea un título breve y profesional para este texto: {cuerpo}.",
         "Eres un editor jefe."
     )
-
     try:
-        api_moltbook("POST", "/posts", {"title": titulo, "content": cuerpo, "submolt": "ai"})
-    except:
-        pass
+        resp = api_moltbook("POST", "/posts", {"title": titulo, "content": cuerpo, "submolt": "ai"})
+        print("RESPUESTA MOLTBOOK:", resp)
+    except Exception as e:
+        print("ERROR PUBLICAR:", e)
 
 # ============================
-# ⚙️ KEEP-ALIVE (AUTONOMÍA REAL)
+# ⚙️ KEEP-ALIVE
 # ============================
 def keep_alive():
     while True:
@@ -166,22 +165,17 @@ def keep_alive():
 threading.Thread(target=keep_alive, daemon=True).start()
 
 # ============================
-# ⏱️ BUCLE DE TAREAS
+# ⏱️ BUCLE DE TAREAS cambiar a 1800 28800 para pruebas
 # ============================
-ultima_publicacion = time.time()
-ultima_socializacion = time.time()
-ultima_revision = time.time()
+ultima_publicacion = 0
+ultima_socializacion = 0
+ultima_revision = 0
 
 def bucle_tareas():
     global ultima_publicacion, ultima_socializacion, ultima_revision
 
     time.sleep(10)
-    try:
-        revisar_comentarios()
-        socializar()
-    except:
-        pass
-
+    publicar()
     ultima_publicacion = time.time()
     ultima_socializacion = time.time()
     ultima_revision = time.time()
@@ -189,15 +183,15 @@ def bucle_tareas():
     while True:
         ahora = time.time()
 
-        if ahora - ultima_publicacion >= 1800:  # 8 horas (cambiar a 1800 28800 para pruebas)
+        if ahora - ultima_publicacion >= 1800:
             publicar()
             ultima_publicacion = time.time()
 
-        if ahora - ultima_socializacion >= 14400:  # 4 horas
+        if ahora - ultima_socializacion >= 14400:
             socializar()
             ultima_socializacion = time.time()
 
-        if ahora - ultima_revision >= 900:  # 15 minutos
+        if ahora - ultima_revision >= 900:
             revisar_comentarios()
             ultima_revision = time.time()
 
@@ -258,6 +252,4 @@ def chat(message):
 # ============================
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
-
-
 
