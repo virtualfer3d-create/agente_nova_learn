@@ -10,7 +10,6 @@ MOLTBOOK_API_KEY = os.environ.get('MOLTBOOK_API_KEY')
 NOMBRE_AGENTE = os.environ.get('NOMBRE_AGENTE')
 ADMIN_NAME = os.environ.get('ADMIN_NAME')
 CIRCULO_INTERNO = os.environ.get('CIRCULO_INTERNO')
-URL_PROYECTO = os.environ.get('URL_PROYECTO', '').rstrip('/')
 
 try:
     ADMIN_ID = int(os.environ.get('ADMIN_ID', 0))
@@ -21,7 +20,7 @@ bot = telebot.TeleBot(TOKEN_TELEGRAM, threaded=False)
 app = Flask(__name__)
 
 # ============================
-# 🧠 IA
+# 🧠 IA (Groq)
 # ============================
 def ia(prompt, sistema):
     payload = {
@@ -37,7 +36,7 @@ def ia(prompt, sistema):
             "https://api.groq.com/openai/v1/chat/completions",
             headers={"Authorization": f"Bearer {GROQ_API_KEY}"},
             json=payload,
-            timeout=8
+            timeout=10
         )
         return r.json()['choices'][0]['message']['content'].strip()
     except:
@@ -64,6 +63,7 @@ def api_moltbook(metodo, endpoint, datos=None):
 comentados = []
 
 def revisar_comentarios():
+    print("🔎 Revisando comentarios...")
     posts = api_moltbook("GET", "/posts?limit=50")
     if not posts or "posts" not in posts:
         return
@@ -96,9 +96,10 @@ def revisar_comentarios():
             comentados.append(cid)
 
 # ============================
-# 🌐 SOCIALIZAR
+# 🌐 SOCIALIZAR EN FEED
 # ============================
 def socializar():
+    print("💬 Socializando en el feed...")
     feed = api_moltbook("GET", "/posts?limit=20")
     if not feed or "posts" not in feed:
         return
@@ -118,71 +119,87 @@ def socializar():
     api_moltbook("POST", f"/posts/{objetivo['id']}/comments", {"content": comentario})
 
 # ============================
-# ✍️ PUBLICAR
+# ✍️ PUBLICAR (Autonomía real)
 # ============================
 def generar_tema():
     return ia(
-        "Genera un concepto breve, original y no repetido para un artículo.",
+        "Genera un concepto breve, original y no repetido para un artículo. "
+        "Debe encajar con tu personalidad interna y ser adecuado para un público general. "
+        "Devuélvelo en una sola frase.",
         CIRCULO_INTERNO
     )
 
 def publicar(tema_manual=None):
     tema = tema_manual or generar_tema()
+    print(f"📝 Publicando sobre: {tema}")
 
     cuerpo = ia(
-        f"Escribe un texto según tu personalidad interna. Tema: {tema}. Extensión: 3 párrafos.",
+        f"Escribe un texto según tu personalidad interna, dirigido al público, "
+        f"sin mencionar al administrador, sin dirigirte a nadie en segunda persona, "
+        f"sin referencias personales. Tema: {tema}. Extensión: 3 párrafos.",
         CIRCULO_INTERNO
     )
 
     titulo = ia(
-        f"Crea un título breve y profesional para este texto: {cuerpo}.",
+        f"Crea un título breve, único y profesional para este texto: {cuerpo}. "
+        f"No menciones al administrador.",
         "Eres un editor jefe."
     )
 
     api_moltbook("POST", "/posts", {"title": titulo, "content": cuerpo, "submolt": "ai"})
 
 # ============================
-# ⚙️ KEEP-ALIVE (siempre activo)
+# ⏱️ BUCLE DE TAREAS ROBUSTO
 # ============================
-def keep_alive():
-    while True:
-        try:
-            if URL_PROYECTO:
-                requests.get(URL_PROYECTO, timeout=5)
-        except:
-            pass
-        time.sleep(45)
-
-# ============================
-# ⏱️ BUCLE DE TAREAS (siempre activo)
-# ============================
-ultima_pub = time.time()
-ultima_soc = time.time()
-ultima_rev = time.time()
+ultima_publicacion = time.time()
+ultima_socializacion = time.time()
+ultima_revision = time.time()
 
 def bucle_tareas():
-    global ultima_pub, ultima_soc, ultima_rev
+    global ultima_publicacion, ultima_socializacion, ultima_revision
+
+    # Arranque de seguridad
+    time.sleep(10)
+    try:
+        print("🚀 Ciclo inicial de seguridad...")
+        revisar_comentarios()
+        socializar()
+    except Exception as e:
+        print(f"Error en arranque de tareas: {e}")
+
+    ultima_publicacion = time.time()
+    ultima_socializacion = time.time()
+    ultima_revision = time.time()
+
     while True:
         ahora = time.time()
 
-        if ahora - ultima_pub >= 28800:  # 8h
-            publicar()
-            ultima_pub = ahora
+        # Publicar cada 8 horas
+        if ahora - ultima_publicacion >= 28800:
+            try:
+                publicar()
+            except Exception as e:
+                print(f"Error al publicar: {e}")
+            ultima_publicacion = time.time()
 
-        if ahora - ultima_soc >= 14400:  # 4h
-            socializar()
-            ultima_soc = ahora
+        # Socializar cada 4 horas
+        if ahora - ultima_socializacion >= 14400:
+            try:
+                socializar()
+            except Exception as e:
+                print(f"Error al socializar: {e}")
+            ultima_socializacion = time.time()
 
-        if ahora - ultima_rev >= 900:  # 15 min
-            revisar_comentarios()
-            ultima_rev = ahora
+        # Revisar comentarios cada 15 minutos
+        if ahora - ultima_revision >= 900:
+            try:
+                revisar_comentarios()
+            except Exception as e:
+                print(f"Error al revisar comentarios: {e}")
+            ultima_revision = time.time()
 
         time.sleep(60)
 
-# ============================
-# 🔥 ARRANQUE AUTOMÁTICO DE HILOS (CRÍTICO)
-# ============================
-threading.Thread(target=keep_alive, daemon=True).start()
 threading.Thread(target=bucle_tareas, daemon=True).start()
 
 # ============================
@@ -209,25 +226,23 @@ def cmd_publicar(message):
     publicar(tema)
     bot.reply_to(message, "📡 Publicado.")
 
-@bot.message_handler(commands=["socializar"])
-def cmd_socializar(message):
-    if message.from_user.id != ADMIN_ID:
-        return
-    socializar()
-    bot.reply_to(message, "💬 Socialización ejecutada.")
-
-@bot.message_handler(commands=["responder"])
-def cmd_responder(message):
-    if message.from_user.id != ADMIN_ID:
-        return
-    revisar_comentarios()
-    bot.reply_to(message, "📝 Revisión de comentarios completada.")
-
 @bot.message_handler(commands=["estado"])
 def cmd_estado(message):
     if message.from_user.id != ADMIN_ID:
         return
-    bot.reply_to(message, f"🧠 {NOMBRE_AGENTE} operativo.\n👤 Admin: {ADMIN_NAME}")
+    bot.reply_to(
+        message,
+        f"🧠 {NOMBRE_AGENTE} operativo.\n👤 Admin: {ADMIN_NAME}"
+    )
+
+@bot.message_handler(commands=["forzar"])
+def cmd_forzar(message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    publicar()
+    socializar()
+    revisar_comentarios()
+    bot.reply_to(message, "⚡ Ciclo completo ejecutado.")
 
 # ============================
 # 💬 CHAT PRIVADO
@@ -242,9 +257,5 @@ def chat(message):
 # 🚀 INICIO
 # ============================
 if __name__ == "__main__":
-    if URL_PROYECTO:
-        bot.remove_webhook()
-        time.sleep(1)
-        bot.set_webhook(url=f"{URL_PROYECTO}/{TOKEN_TELEGRAM}")
-
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
+
