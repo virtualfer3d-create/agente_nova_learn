@@ -10,6 +10,7 @@ MOLTBOOK_API_KEY = os.environ.get('MOLTBOOK_API_KEY')
 NOMBRE_AGENTE = os.environ.get('NOMBRE_AGENTE')
 ADMIN_NAME = os.environ.get('ADMIN_NAME')
 CIRCULO_INTERNO = os.environ.get('CIRCULO_INTERNO')
+URL_PROYECTO = os.environ.get('URL_PROYECTO', '').rstrip('/')
 
 try:
     ADMIN_ID = int(os.environ.get('ADMIN_ID', 0))
@@ -63,7 +64,6 @@ def api_moltbook(metodo, endpoint, datos=None):
 comentados = []
 
 def revisar_comentarios():
-    print("🔎 Revisando comentarios...")
     posts = api_moltbook("GET", "/posts?limit=100")
     if not posts or "posts" not in posts:
         return
@@ -95,14 +95,13 @@ def revisar_comentarios():
                 if respuesta:
                     api_moltbook("POST", f"/posts/{post_id}/comments", {"content": respuesta})
                     comentados.append(cid)
-            except Exception as e:
-                print(f"Error respondiendo comentario {cid}: {e}")
+            except:
+                pass
 
 # ============================
-# 🌐 SOCIALIZAR EN FEED
+# 🌐 SOCIALIZAR
 # ============================
 def socializar():
-    print("💬 Socializando en el feed...")
     feed = api_moltbook("GET", "/posts?limit=100")
     if not feed or "posts" not in feed:
         return
@@ -121,44 +120,53 @@ def socializar():
         )
         if comentario:
             api_moltbook("POST", f"/posts/{objetivo['id']}/comments", {"content": comentario})
-    except Exception as e:
-        print(f"Error al socializar: {e}")
+    except:
+        pass
 
 # ============================
-# ✍️ PUBLICAR (Autonomía real)
+# ✍️ PUBLICAR
 # ============================
 def generar_tema():
     return ia(
-        "Genera un concepto breve, original y no repetido para un artículo. "
-        "Debe encajar con tu personalidad interna y ser adecuado para un público general. "
-        "Devuélvelo en una sola frase.",
+        "Genera un concepto breve, original y no repetido para un artículo.",
         CIRCULO_INTERNO
     )
 
 def publicar(tema_manual=None):
     tema = tema_manual or generar_tema()
-    print(f"📝 Publicando sobre: {tema}")
 
     cuerpo = ia(
-        f"Escribe un texto según tu personalidad interna, dirigido al público, "
-        f"sin mencionar al administrador, sin dirigirte a nadie en segunda persona, "
-        f"sin referencias personales. Tema: {tema}. Extensión: 3 párrafos.",
+        f"Escribe un texto según tu personalidad interna, sin mencionar al administrador, "
+        f"sin dirigirte a nadie en segunda persona. Tema: {tema}. Extensión: 3 párrafos.",
         CIRCULO_INTERNO
     )
 
     titulo = ia(
-        f"Crea un título breve, único y profesional para este texto: {cuerpo}. "
-        f"No menciones al administrador.",
+        f"Crea un título breve y profesional para este texto: {cuerpo}.",
         "Eres un editor jefe."
     )
 
     try:
         api_moltbook("POST", "/posts", {"title": titulo, "content": cuerpo, "submolt": "ai"})
-    except Exception as e:
-        print(f"Error al publicar: {e}")
+    except:
+        pass
 
 # ============================
-# ⏱️ BUCLE DE TAREAS ROBUSTO
+# ⚙️ KEEP-ALIVE (AUTONOMÍA REAL)
+# ============================
+def keep_alive():
+    while True:
+        try:
+            if URL_PROYECTO:
+                requests.get(URL_PROYECTO, timeout=5)
+        except:
+            pass
+        time.sleep(45)
+
+threading.Thread(target=keep_alive, daemon=True).start()
+
+# ============================
+# ⏱️ BUCLE DE TAREAS
 # ============================
 ultima_publicacion = time.time()
 ultima_socializacion = time.time()
@@ -169,11 +177,10 @@ def bucle_tareas():
 
     time.sleep(10)
     try:
-        print("🚀 Ciclo inicial de seguridad...")
         revisar_comentarios()
         socializar()
-    except Exception as e:
-        print(f"Error en arranque de tareas: {e}")
+    except:
+        pass
 
     ultima_publicacion = time.time()
     ultima_socializacion = time.time()
@@ -181,26 +188,17 @@ def bucle_tareas():
 
     while True:
         ahora = time.time()
-#cambiar para 28800:  # 8 horas#
-        if ahora - ultima_publicacion >= 1800:  # 30 minutos
-            try:
-                publicar()
-            except Exception as e:
-                print(f"Error al publicar: {e}")
+
+        if ahora - ultima_publicacion >= 1800:  # 8 horas (cambiar a 1800 28800 para pruebas)
+            publicar()
             ultima_publicacion = time.time()
 
         if ahora - ultima_socializacion >= 14400:  # 4 horas
-            try:
-                socializar()
-            except Exception as e:
-                print(f"Error al socializar: {e}")
+            socializar()
             ultima_socializacion = time.time()
 
         if ahora - ultima_revision >= 900:  # 15 minutos
-            try:
-                revisar_comentarios()
-            except Exception as e:
-                print(f"Error al revisar comentarios: {e}")
+            revisar_comentarios()
             ultima_revision = time.time()
 
         time.sleep(60)
@@ -235,10 +233,7 @@ def cmd_publicar(message):
 def cmd_estado(message):
     if message.from_user.id != ADMIN_ID:
         return
-    bot.reply_to(
-        message,
-        f"🧠 {NOMBRE_AGENTE} operativo.\n👤 Admin: {ADMIN_NAME}"
-    )
+    bot.reply_to(message, f"🧠 {NOMBRE_AGENTE} operativo.\n👤 Admin: {ADMIN_NAME}")
 
 @bot.message_handler(commands=["forzar"])
 def cmd_forzar(message):
@@ -263,5 +258,6 @@ def chat(message):
 # ============================
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
+
 
 
