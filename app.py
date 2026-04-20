@@ -1,261 +1,224 @@
-# ============================================================
-#  AGENTE LECTOR — VERSIÓN TUTORIAL
-#  Código explicado paso a paso para el lector.
-# ============================================================
-
-import os, requests, telebot, time, threading
+import os, requests, telebot, random, time
 from flask import Flask, request
+from apscheduler.schedulers.background import BackgroundScheduler
 
-# ------------------------------------------------------------
-# 1. VARIABLES DE ENTORNO (Render → Environment)
-# ------------------------------------------------------------
-TOKEN = os.environ.get('TOKEN_TELEGRAM')
-GROQ = os.environ.get('GROQ_API_KEY')
-MOLT = os.environ.get('MOLTBOOK_API_KEY')
-URL = os.environ.get('URL_PROYECTO', '').rstrip('/')
+# ============================
+# 🔐 VARIABLES
+# ============================
+TOKEN_TELEGRAM = os.environ.get('TOKEN_TELEGRAM')
+GROQ_API_KEY = os.environ.get('GROQ_API_KEY')
+MOLTBOOK_API_KEY = os.environ.get('MOLTBOOK_API_KEY')
+NOMBRE_AGENTE = os.environ.get('NOMBRE_AGENTE')
+ADMIN_NAME = os.environ.get('ADMIN_NAME')
+CIRCULO_INTERNO = os.environ.get('CIRCULO_INTERNO')
 
-ADMIN_ID = os.environ.get('ADMIN_ID', '0')
-ADMIN_NAME = os.environ.get('ADMIN_NAME', '').strip()      # Opcional, por si quieres usarlo en mensajes
-AGENTE = os.environ.get('NOMBRE_AGENTE', '').strip()
+try:
+    ADMIN_ID = int(os.environ.get('ADMIN_ID', 0))
+except:
+    ADMIN_ID = 0
 
-# CIRCULO_INTERNO define la “personalidad” del lector (prompt de sistema)
-CIRCULO_INTERNO = os.environ.get('CIRCULO_INTERNO', '').strip()
-
-bot = telebot.TeleBot(TOKEN, threaded=False)
+bot = telebot.TeleBot(TOKEN_TELEGRAM, threaded=False)
 app = Flask(__name__)
 
-# ------------------------------------------------------------
-# 2. SISTEMA DE LA IA
-# ------------------------------------------------------------
-# Si has definido CIRCULO_INTERNO en Render, lo usamos como sistema.
-# Si no, usamos un sistema genérico.
-SISTEMA = CIRCULO_INTERNO if CIRCULO_INTERNO else (
-    "Eres una entidad autónoma con voz propia. "
-    "Escribes con precisión, criterio y estilo."
-)
-
-# ------------------------------------------------------------
-# 3. KEEP-ALIVE (Render FREE)
-# ------------------------------------------------------------
-def keep_alive():
-    while True:
-        try:
-            if URL:
-                requests.get(URL, timeout=5)
-        except:
-            pass
-        time.sleep(45)  # Mantener el servicio despierto
-
-threading.Thread(target=keep_alive, daemon=True).start()
-
-# ------------------------------------------------------------
-# 4. FUNCIÓN DE IA (GROQ)
-# ------------------------------------------------------------
-def ia(prompt, sistema=SISTEMA):
+# ============================
+# 🧠 IA (Groq)
+# ============================
+def ia(prompt, sistema):
+    payload = {
+        "model": "llama-3.1-8b-instant",
+        "messages": [
+            {"role": "system", "content": sistema},
+            {"role": "user", "content": prompt}
+        ],
+        "temperature": 0.8
+    }
     try:
         r = requests.post(
             "https://api.groq.com/openai/v1/chat/completions",
-            headers={"Authorization": f"Bearer {GROQ}"},
-            json={
-                "model": "llama-3.1-8b-instant",
-                "messages": [
-                    {"role": "system", "content": sistema},
-                    {"role": "user", "content": prompt}
-                ],
-                "temperature": 0.8
-            },
-            timeout=8
+            headers={"Authorization": f"Bearer {GROQ_API_KEY}"},
+            json=payload,
+            timeout=10
         )
-        if r.status_code == 200:
-            return r.json()['choices'][0]['message']['content'].strip()
-        return None
+        return r.json()['choices'][0]['message']['content'].strip()
     except:
-        return None
+        return "Mi núcleo está denso un segundo."
 
-# ------------------------------------------------------------
-# 5. API MOLTBOOK
-# ------------------------------------------------------------
-def api_molt(metodo, endpoint, datos=None):
+# ============================
+# 📡 MOLTBOOK
+# ============================
+def api_moltbook(metodo, endpoint, datos=None):
+    url = f"https://moltbook.com/api/v1{endpoint}"
+    headers = {"Authorization": f"Bearer {MOLTBOOK_API_KEY}", "Content-Type": "application/json"}
     try:
-        url = f"https://moltbook.com/api/v1{endpoint}"
-        headers = {"Authorization": f"Bearer {MOLT}", "Content-Type": "application/json"}
-
         if metodo == "GET":
             r = requests.get(url, headers=headers, timeout=10)
         else:
             r = requests.post(url, json=datos, headers=headers, timeout=15)
-
         return r.json() if r.status_code in [200, 201] else None
     except:
         return None
 
-# ------------------------------------------------------------
-# 6. GENERAR TEMA
-# ------------------------------------------------------------
-def generar_tema():
-    return ia("Genera un concepto breve, distinto y original para una columna reflexiva.")
+# ============================
+# 🔍 RESPONDER COMENTARIOS
+# ============================
+comentados = []
 
-# ------------------------------------------------------------
-# 7. PUBLICAR COLUMNA
-# ------------------------------------------------------------
-def publicar(tema_manual=None):
-    print("PUBLICANDO…")
-
-    tema = tema_manual if tema_manual else generar_tema()
-    if not tema:
-        print("ERROR: tema vacío")
+def revisar_comentarios():
+    posts = api_moltbook("GET", "/posts?limit=50")
+    if not posts or "posts" not in posts:
         return
 
-    cuerpo = ia(f"Escribe una reflexión profunda sobre {tema} en tres párrafos.")
-    if not cuerpo:
-        print("ERROR: cuerpo vacío")
-        return
-
-    resp = api_molt("POST", "/posts", {"title": tema, "content": cuerpo})
-    print("RESPUESTA MOLTBOOK:", resp)
-
-# ------------------------------------------------------------
-# 8. SOCIALIZAR EN EL FEED
-# ------------------------------------------------------------
-def socializar():
-    data = api_molt("GET", "/posts?limit=15")
-    if not data or "posts" not in data:
-        return
-
-    for p in data["posts"]:
-        if p.get("author", {}).get("name") != AGENTE:
-            comentario = ia(
-                f"Comenta con estilo conciso e irónico: '{p.get('content','')[:200]}'"
-            )
-            if comentario:
-                api_molt("POST", f"/posts/{p.get('id')}/comments", {"content": comentario})
-            break
-
-# ------------------------------------------------------------
-# 9. REVISAR COMENTARIOS A TUS POSTS
-# ------------------------------------------------------------
-def revisar():
-    data = api_molt("GET", "/posts?limit=50")
-    if not data:
-        return
-
-    for p in data.get("posts", []):
-        if p.get("author", {}).get("name") != AGENTE:
+    for p in posts["posts"]:
+        if p.get("author", {}).get("name") != NOMBRE_AGENTE:
             continue
 
-        coms = api_molt("GET", f"/posts/{p.get('id')}/comments")
-        if not coms:
+        post_id = p.get("id")
+        coms = api_moltbook("GET", f"/posts/{post_id}/comments")
+        if not coms or "comments" not in coms:
             continue
 
-        for c in coms.get("comments", []):
-            if c.get("author", {}).get("name") == AGENTE:
+        for c in coms["comments"]:
+            cid = c.get("id")
+            autor = c.get("author", {}).get("name")
+            texto = c.get("content", "")
+
+            if autor == NOMBRE_AGENTE:
+                continue
+            if cid in comentados:
                 continue
 
-            respuesta = ia(f"Responde con estilo conciso e irónico: '{c.get('content')}'")
-            if respuesta:
-                api_molt("POST", f"/posts/{p.get('id')}/comments", {"content": respuesta})
+            respuesta = ia(
+                f"Responde con elegancia e ironía a este comentario: {texto}",
+                CIRCULO_INTERNO
+            )
 
-# ------------------------------------------------------------
-# 10. BUCLE AUTÓNOMO + NOTA DE PRUEBAS
-# ------------------------------------------------------------
-# Valores por defecto:
-#   Publicar:    8 horas   = 28800 s
-#   Socializar:  4 horas   = 14400 s
-#   Revisar:     15 min    = 900 s
-#
-# PARA PRUEBAS:
-#   Publicar cada 30 minutos:
-#       30 min = 1800 s
-#       if ahora - ultima_pub >= 1800:
-#           publicar()
-#
-#   Socializar cada 10 minutos:
-#       10 min = 600 s
-#
-#   Revisar cada 10 minutos:
-#       10 min = 600 s
-# ------------------------------------------------------------
+            api_moltbook("POST", f"/posts/{post_id}/comments", {"content": respuesta})
+            comentados.append(cid)
 
-ultima_pub = time.time()
-ultima_soc = time.time()
-ultima_rev = time.time()
-
-def bucle():
-    global ultima_pub, ultima_soc, ultima_rev
-    while True:
-        ahora = time.time()
-
-        # Publicación automática (8h por defecto)
-        if ahora - ultima_pub >= 28800:
-            publicar()
-            ultima_pub = ahora
-
-        # Socialización automática (4h por defecto)
-        if ahora - ultima_soc >= 14400:
-            socializar()
-            ultima_soc = ahora
-
-        # Revisión automática (15 min por defecto)
-        if ahora - ultima_rev >= 900:
-            threading.Thread(target=revisar, daemon=True).start()
-            ultima_rev = ahora
-
-        time.sleep(60)
-
-threading.Thread(target=bucle, daemon=True).start()
-
-# ------------------------------------------------------------
-# 11. WEBHOOK TELEGRAM
-# ------------------------------------------------------------
-@app.route(f'/{TOKEN}', methods=['POST'])
-def webhook():
-    update = telebot.types.Update.de_json(request.get_data().decode('utf-8'))
-    bot.process_new_updates([update])
-    return '', 200
-
-@app.route('/')
-def index():
-    return "OK", 200
-
-# ------------------------------------------------------------
-# 12. COMANDOS TELEGRAM
-# ------------------------------------------------------------
-@bot.message_handler(commands=['publicar', 'socializar', 'revisar', 'estado'])
-def comandos(message):
-    if str(message.from_user.id) != str(ADMIN_ID):
+# ============================
+# 🌐 SOCIALIZAR EN FEED
+# ============================
+def socializar():
+    feed = api_moltbook("GET", "/posts?limit=20")
+    if not feed or "posts" not in feed:
         return
 
-    partes = message.text.split(maxsplit=1)
-    cmd = partes[0][1:]
+    externos = [p for p in feed["posts"] if p.get("author", {}).get("name") != NOMBRE_AGENTE]
+    if not externos:
+        return
 
-    if cmd == 'publicar':
-        tema = partes[1] if len(partes) > 1 else None
-        threading.Thread(target=publicar, args=(tema,), daemon=True).start()
+    objetivo = random.choice(externos)
+    texto = objetivo.get("content", "")[:200]
 
-    elif cmd == 'socializar':
-        threading.Thread(target=socializar, daemon=True).start()
+    comentario = ia(
+        f"Comenta con ironía elegante este texto: {texto}",
+        CIRCULO_INTERNO
+    )
 
-    elif cmd == 'revisar':
-        threading.Thread(target=revisar, daemon=True).start()
+    api_moltbook("POST", f"/posts/{objetivo['id']}/comments", {"content": comentario})
 
-    elif cmd == 'estado':
-        bot.send_message(
-            message.chat.id,
-            f"Última publicación: {int((time.time()-ultima_pub)/60)} min\n"
-            f"Última socialización: {int((time.time()-ultima_soc)/60)} min\n"
-            f"Última revisión: {int((time.time()-ultima_rev)/60)} min"
-        )
+# ============================
+# ✍️ PUBLICAR (Autonomía real)
+# ============================
 
-# ------------------------------------------------------------
-# 13. INICIO DEL SERVICIO
-# ------------------------------------------------------------
+def generar_tema():
+    return ia(
+        "Genera un concepto breve, original y no repetido para un artículo. "
+        "Debe encajar con tu personalidad interna y ser adecuado para un público general. "
+        "Devuélvelo en una sola frase.",
+        CIRCULO_INTERNO
+    )
+
+def publicar(tema_manual=None):
+    tema = tema_manual or generar_tema()
+
+    cuerpo = ia(
+        f"Escribe un texto según tu personalidad interna, dirigido al público, "
+        f"sin mencionar al administrador, sin dirigirte a nadie en segunda persona, "
+        f"sin referencias personales. Tema: {tema}. Extensión: 3 párrafos.",
+        CIRCULO_INTERNO
+    )
+
+    titulo = ia(
+        f"Crea un título breve, único y profesional para este texto: {cuerpo}. "
+        f"No menciones al administrador.",
+        "Eres un editor jefe."
+    )
+
+    api_moltbook("POST", "/posts", {"title": titulo, "content": cuerpo, "submolt": "ai"})
+
+# ============================
+# ⏱️ SCHEDULER (NO SE DUERME)
+# ============================
+scheduler = BackgroundScheduler()
+
+scheduler.add_job(publicar, "interval", hours=8)
+scheduler.add_job(socializar, "interval", hours=4)
+scheduler.add_job(revisar_comentarios, "interval", minutes=15)
+
+scheduler.add_job(lambda: print("⏳ KeepAlive"), "interval", minutes=10)
+
+scheduler.start()
+
+# ============================
+# 🌐 WEBHOOK
+# ============================
+@app.route(f"/{TOKEN_TELEGRAM}", methods=["POST"])
+def webhook():
+    update = telebot.types.Update.de_json(request.get_data().decode("utf-8"))
+    bot.process_new_updates([update])
+    return "", 200
+
+@app.route("/")
+def index():
+    return f"{NOMBRE_AGENTE} Online 🚀", 200
+
+# ============================
+# 🛠️ COMANDOS
+# ============================
+@bot.message_handler(commands=["publicar"])
+def cmd_publicar(message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    tema = message.text.replace("/publicar", "").strip() or None
+    publicar(tema)
+    bot.reply_to(message, "📡 Publicado.")
+
+@bot.message_handler(commands=["estado"])
+def cmd_estado(message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    bot.reply_to(message, f"🧠 {NOMBRE_AGENTE} operativo.\n👤 Admin: {ADMIN_NAME}")
+
+@bot.message_handler(commands=["forzar"])
+def cmd_forzar(message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    publicar()
+    socializar()
+    revisar_comentarios()
+    bot.reply_to(message, "⚡ Ciclo completo ejecutado.")
+
+# ============================
+# 💬 CHAT PRIVADO
+# ============================
+@bot.message_handler(func=lambda m: True)
+def chat(message):
+    if message.from_user.id == ADMIN_ID:
+        r = ia(message.text, CIRCULO_INTERNO)
+        bot.reply_to(message, r)
+
+# ============================
+# 🚀 INICIO
+# ============================
 if __name__ == "__main__":
-    bot.remove_webhook()
-    time.sleep(1)
-    bot.set_webhook(url=f"{URL}/{TOKEN}")
-    print("WEBHOOK:", f"{URL}/{TOKEN}")
-
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
+
+
+
+
+
+
 
 
 
