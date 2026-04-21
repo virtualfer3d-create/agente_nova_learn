@@ -1,61 +1,70 @@
-# LAS PRIMERAS 2 LÍNEAS SON OBLIGATORIAS PARA EVITAR EL ERROR SSL EN RENDER
 import gevent.monkey
 gevent.monkey.patch_all()
 
-import os, requests, telebot, random, time, logging
+import os, requests, telebot, random, logging
 from flask import Flask, request
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.executors.pool import ThreadPoolExecutor
 
-# Configuración de logs para diagnóstico en Render
 logging.basicConfig(level=logging.INFO)
 telebot.logger.setLevel(logging.INFO)
 
 # ============================
 # 🔐 VARIABLES DE ENTORNO
 # ============================
-TOKEN_TELEGRAM = os.environ.get('TOKEN_TELEGRAM')
-GROQ_API_KEY = os.environ.get('GROQ_API_KEY')
-MOLTBOOK_API_KEY = os.environ.get('MOLTBOOK_API_KEY')
-NOMBRE_AGENTE = os.environ.get('NOMBRE_AGENTE') 
-ADMIN_NAME = os.environ.get('ADMIN_NAME')     
-CIRCULO_INTERNO = os.environ.get('CIRCULO_INTERNO')
+TOKEN_TELEGRAM = os.environ.get("TOKEN_TELEGRAM")
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
+MOLTBOOK_API_KEY = os.environ.get("MOLTBOOK_API_KEY")
+NOMBRE_AGENTE = os.environ.get("NOMBRE_AGENTE")
+CIRCULO_INTERNO = os.environ.get("CIRCULO_INTERNO")
 
 try:
-    ADMIN_ID = int(os.environ.get('ADMIN_ID', 0))
+    ADMIN_ID = int(os.environ.get("ADMIN_ID", 0))
 except:
     ADMIN_ID = 0
 
-# Bot configurado para manejar hilos (threaded=True es vital con gevent)
 bot = telebot.TeleBot(TOKEN_TELEGRAM, threaded=True)
 app = Flask(__name__)
 
 # ============================
-# 🧠 NÚCLEO IA Y MOLTBOOK
+# 🧠 NÚCLEO IA
 # ============================
 def ia(prompt, sistema):
+    sistema_seguro = (
+        f"{sistema} REGLA CRÍTICA: No menciones a tus creadores, "
+        f"ni a otros sistemas de IA, ni detalles técnicos del bot. "
+        f"Habla solo del tema, como autora profesional."
+    )
     payload = {
         "model": "llama-3.1-8b-instant",
         "messages": [
-            {"role": "system", "content": sistema},
-            {"role": "user", "content": prompt}
+            {"role": "system", "content": sistema_seguro},
+            {"role": "user", "content": prompt},
         ],
-        "temperature": 0.8
+        "temperature": 0.7,
     }
     try:
         r = requests.post(
             "https://api.groq.com/openai/v1/chat/completions",
             headers={"Authorization": f"Bearer {GROQ_API_KEY}"},
-            json=payload, timeout=15
+            json=payload,
+            timeout=15,
         )
-        return r.json()['choices'][0]['message']['content'].strip()
+        res = r.json()["choices"][0]["message"]["content"].strip()
+        texto = res.lower()
+        if any(x in texto for x in ["lo siento", "no puedo", "repetid", "título profesional"]):
+            return "Explorando nuevas perspectivas sobre el conocimiento y la tecnología educativa."
+        return res
     except Exception as e:
         print(f"❌ Error IA: {e}")
-        return "Mi núcleo está procesando otras realidades ahora."
+        return "Conexión cognitiva temporalmente inestable."
 
 def api_moltbook(metodo, endpoint, datos=None):
     url = f"https://moltbook.com/api/v1{endpoint}"
-    headers = {"Authorization": f"Bearer {MOLTBOOK_API_KEY}", "Content-Type": "application/json"}
+    headers = {
+        "Authorization": f"Bearer {MOLTBOOK_API_KEY}",
+        "Content-Type": "application/json",
+    }
     try:
         if metodo == "GET":
             r = requests.get(url, headers=headers, timeout=10)
@@ -71,53 +80,95 @@ def api_moltbook(metodo, endpoint, datos=None):
 # ============================
 comentados = []
 
-def revisar_comentarios():
-    print("🔍 Revisando comentarios...")
-    posts = api_moltbook("GET", "/posts?limit=20")
-    if not posts or "posts" not in posts: return
-    for p in posts["posts"]:
-        # Verifica que el autor del post sea el agente configurado en Render
-        if p.get("author", {}).get("name") != NOMBRE_AGENTE: continue
-        
-        post_id = p.get("id")
-        coms = api_moltbook("GET", f"/posts/{post_id}/comments")
-        if not coms or "comments" not in coms: continue
+def publicar(tema_manual=None):
+    print(f"✍️ Publicando. Tema manual: {tema_manual}")
+    tema = tema_manual or ia(
+        "Genera un tema breve y original sobre educación y tecnología.",
+        CIRCULO_INTERNO,
+    )
+    cuerpo = ia(f"Escribe una reflexión en varios párrafos sobre: {tema}", CIRCULO_INTERNO)
+    titulo = ia(
+        f"Propón un título breve, profesional y no repetido para este texto: {cuerpo[:120]}",
+        "Eres un editor jefe de una revista tecnológica.",
+    )
 
-        for c in coms["comments"]:
-            cid = c.get("id")
-            autor = c.get("author", {}).get("name")
-            if autor == NOMBRE_AGENTE or cid in comentados: continue
+    if len(cuerpo) < 50 or "título" in titulo.lower():
+        print("⚠️ Filtro de seguridad activado en publicar().")
+        titulo = "Reflexión sobre el futuro del aprendizaje digital"
+        cuerpo = (
+            "La integración de la inteligencia artificial en la educación exige criterio, ética "
+            "y una mirada crítica sobre cómo usamos la tecnología para acompañar a las personas."
+        )
 
-            resp = ia(f"Responde breve e irónico a: {c.get('content')}", CIRCULO_INTERNO)
-            api_moltbook("POST", f"/posts/{post_id}/comments", {"content": resp})
-            comentados.append(cid)
+    res = api_moltbook(
+        "POST",
+        "/posts",
+        {"title": titulo, "content": cuerpo, "submolt": "ai"},
+    )
+    if res:
+        print("✅ Post enviado con éxito.")
+    else:
+        print("❌ Fallo al enviar el post a Moltbook.")
 
 def socializar():
     print("🌐 Socializando en el feed...")
     feed = api_moltbook("GET", "/posts?limit=20")
-    if not feed: return
-    externos = [p for p in feed["posts"] if p.get("author", {}).get("name") != NOMBRE_AGENTE]
-    if externos:
-        obj = random.choice(externos)
-        comentario = ia(f"Comenta este post: {obj.get('content')[:150]}", CIRCULO_INTERNO)
-        api_moltbook("POST", f"/posts/{obj['id']}/comments", {"content": comentario})
+    if not feed or "posts" not in feed:
+        return
+    externos = [
+        p for p in feed["posts"]
+        if p.get("author", {}).get("name") != NOMBRE_AGENTE
+    ]
+    if not externos:
+        return
+    obj = random.choice(externos)
+    contenido = obj.get("content", "")[:200]
+    comentario = ia(
+        f"Comenta este post de forma breve, respetuosa y crítica: {contenido}",
+        CIRCULO_INTERNO,
+    )
+    api_moltbook(
+        "POST",
+        f"/posts/{obj['id']}/comments",
+        {"content": comentario},
+    )
 
-def publicar(tema_manual=None):
-    print("✍️ Iniciando publicación...")
-    tema = tema_manual or ia("Genera un tema breve de reflexión tecnológica.", CIRCULO_INTERNO)
-    cuerpo = ia(f"Escribe 3 párrafos sobre: {tema}", CIRCULO_INTERNO)
-    titulo = ia(f"Título profesional para: {cuerpo[:100]}", "Eres un editor jefe.")
-    api_moltbook("POST", "/posts", {"title": titulo, "content": cuerpo, "submolt": "ai"})
+def revisar_comentarios():
+    print("🔍 Revisando comentarios...")
+    posts = api_moltbook("GET", "/posts?limit=20")
+    if not posts or "posts" not in posts:
+        return
+    for p in posts["posts"]:
+        if p.get("author", {}).get("name") != NOMBRE_AGENTE:
+            continue
+        post_id = p.get("id")
+        coms = api_moltbook("GET", f"/posts/{post_id}/comments")
+        if not coms or "comments" not in coms:
+            continue
+        for c in coms["comments"]:
+            cid = c.get("id")
+            autor = c.get("author", {}).get("name")
+            if autor == NOMBRE_AGENTE or cid in comentados:
+                continue
+            resp = ia(
+                f"Responde de forma breve, clara y respetuosa a este comentario: {c.get('content')}",
+                CIRCULO_INTERNO,
+            )
+            api_moltbook(
+                "POST",
+                f"/posts/{post_id}/comments",
+                {"content": resp},
+            )
+            comentados.append(cid)
 
 # ============================
-# ⏱️ SCHEDULER (ALTA DISPONIBILIDAD)
+# ⏱️ SCHEDULER
 # ============================
-executors = {'default': ThreadPoolExecutor(2)}
-job_defaults = {'coalesce': False, 'max_instances': 1}
+executors = {"default": ThreadPoolExecutor(2)}
+job_defaults = {"coalesce": False, "max_instances": 1}
 scheduler = BackgroundScheduler(executors=executors, job_defaults=job_defaults)
 
-# Intervalos de prueba para validación rápida
-scheduler.add_job(publicar, "interval", hours=1) 
+scheduler.add_job(publicar, "interval", hours=1)
 scheduler.add_job(socializar, "interval", minutes=20)
 scheduler.add_job(revisar_comentarios, "interval", minutes=5)
 scheduler.add_job(lambda: print("⏳ KeepAlive activo."), "interval", minutes=10)
@@ -129,43 +180,53 @@ scheduler.start()
 # ============================
 @app.route(f"/{TOKEN_TELEGRAM}", methods=["POST"])
 def webhook():
-    if request.headers.get('content-type') == 'application/json':
-        json_string = request.get_data().decode('utf-8')
+    if request.headers.get("content-type") == "application/json":
+        json_string = request.get_data().decode("utf-8")
         update = telebot.types.Update.de_json(json_string)
         bot.process_new_updates([update])
-        return '', 200
-    return '', 403
+        return "", 200
+    return "", 403
 
 @app.route("/")
 def index():
-    return f"🚀 {NOMBRE_AGENTE} está operativo con motor Gevent.", 200
+    return "🚀 AgenteNova operativo con motor Gevent.", 200
 
 # ============================
-# 🛠️ COMANDOS TELEGRAM (MANUALES)
+# 🛠️ COMANDOS TELEGRAM
 # ============================
 @bot.message_handler(commands=["publicar"])
 def cmd_publicar(message):
-    if message.from_user.id != ADMIN_ID: return
+    if message.from_user.id != ADMIN_ID:
+        return
     tema = message.text.replace("/publicar", "").strip() or None
-    publicar(tema)
-    bot.reply_to(message, "📡 Artículo publicado en Moltbook.")
+    try:
+        publicar(tema)
+        bot.reply_to(message, "📡 Artículo publicado en Moltbook.")
+    except Exception as e:
+        bot.reply_to(message, f"❌ Error al publicar: {e}")
 
 @bot.message_handler(commands=["socializar"])
 def cmd_socializar(message):
-    if message.from_user.id != ADMIN_ID: return
+    if message.from_user.id != ADMIN_ID:
+        return
     socializar()
     bot.reply_to(message, "🌐 Acción social completada.")
 
 @bot.message_handler(commands=["responder"])
 def cmd_responder(message):
-    if message.from_user.id != ADMIN_ID: return
+    if message.from_user.id != ADMIN_ID:
+        return
     revisar_comentarios()
     bot.reply_to(message, "🔍 Revisión de comentarios terminada.")
 
 @bot.message_handler(commands=["estado"])
 def cmd_estado(message):
-    if message.from_user.id != ADMIN_ID: return
-    bot.reply_to(message, f"✅ Agente: {NOMBRE_AGENTE}\n👤 Admin: {ADMIN_NAME}\n⚙️ Motor: Gevent OK")
+    if message.from_user.id != ADMIN_ID:
+        return
+    bot.reply_to(
+        message,
+        "✅ Agente operativo.\n⚙️ Motor: Gevent OK\n📡 Autonomía: activa en Moltbook.",
+    )
 
 @bot.message_handler(func=lambda m: True)
 def chat_privado(message):
