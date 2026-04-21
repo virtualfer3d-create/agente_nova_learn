@@ -3,7 +3,7 @@ from flask import Flask, request
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.executors.pool import ThreadPoolExecutor
 
-# Configuración de logs
+# Configuración de logs y visibilidad de Webhook
 logging.basicConfig(level=logging.INFO)
 telebot.logger.setLevel(logging.INFO)
 
@@ -26,40 +26,23 @@ bot = telebot.TeleBot(TOKEN_TELEGRAM, threaded=True)
 app = Flask(__name__)
 
 # ============================
-# 🧠 NÚCLEO IA Y MOLTBOOK
+# 🧠 FUNCIONES NÚCLEO
 # ============================
 def ia(prompt, sistema):
-    payload = {
-        "model": "llama-3.1-8b-instant",
-        "messages": [
-            {"role": "system", "content": sistema},
-            {"role": "user", "content": prompt}
-        ],
-        "temperature": 0.8
-    }
+    payload = {"model": "llama-3.1-8b-instant", "messages": [{"role": "system", "content": sistema}, {"role": "user", "content": prompt}], "temperature": 0.8}
     try:
-        r = requests.post(
-            "https://api.groq.com/openai/v1/chat/completions",
-            headers={"Authorization": f"Bearer {GROQ_API_KEY}"},
-            json=payload, timeout=15
-        )
+        r = requests.post("https://api.groq.com/openai/v1/chat/completions", headers={"Authorization": f"Bearer {GROQ_API_KEY}"}, json=payload, timeout=15)
         return r.json()['choices'][0]['message']['content'].strip()
-    except Exception as e:
-        print(f"❌ Error IA: {e}")
-        return "Mi núcleo está procesando otras realidades ahora."
+    except: return "Núcleo en pausa."
 
 def api_moltbook(metodo, endpoint, datos=None):
     url = f"https://moltbook.com/api/v1{endpoint}"
     headers = {"Authorization": f"Bearer {MOLTBOOK_API_KEY}", "Content-Type": "application/json"}
     try:
-        if metodo == "GET":
-            r = requests.get(url, headers=headers, timeout=10)
-        else:
-            r = requests.post(url, json=datos, headers=headers, timeout=15)
+        if metodo == "GET": r = requests.get(url, headers=headers, timeout=10)
+        else: r = requests.post(url, json=datos, headers=headers, timeout=15)
         return r.json() if r.status_code in [200, 201] else None
-    except Exception as e:
-        print(f"❌ Error Moltbook: {e}")
-        return None
+    except: return None
 
 # ============================
 # ⚙️ FUNCIONES DE AUTONOMÍA
@@ -67,6 +50,7 @@ def api_moltbook(metodo, endpoint, datos=None):
 comentados = []
 
 def revisar_comentarios():
+    print("🔍 Revisando comentarios...")
     posts = api_moltbook("GET", "/posts?limit=20")
     if not posts or "posts" not in posts: return
     for p in posts["posts"]:
@@ -76,13 +60,13 @@ def revisar_comentarios():
         if not coms or "comments" not in coms: continue
         for c in coms["comments"]:
             cid = c.get("id")
-            autor = c.get("author", {}).get("name")
-            if autor == NOMBRE_AGENTE or cid in comentados: continue
-            resp = ia(f"Responde breve e irónico a: {c.get('content')}", CIRCULO_INTERNO)
+            if c.get("author", {}).get("name") == NOMBRE_AGENTE or cid in comentados: continue
+            resp = ia(f"Responde a: {c.get('content')}", CIRCULO_INTERNO)
             api_moltbook("POST", f"/posts/{post_id}/comments", {"content": resp})
             comentados.append(cid)
 
 def socializar():
+    print("🌐 Socializando...")
     feed = api_moltbook("GET", "/posts?limit=20")
     if not feed: return
     externos = [p for p in feed["posts"] if p.get("author", {}).get("name") != NOMBRE_AGENTE]
@@ -92,30 +76,24 @@ def socializar():
         api_moltbook("POST", f"/posts/{obj['id']}/comments", {"content": comentario})
 
 def publicar(tema_manual=None):
-    tema = tema_manual or ia("Genera un tema breve de reflexión tecnológica.", CIRCULO_INTERNO)
-    cuerpo = ia(f"Escribe 3 párrafos sobre: {tema}", CIRCULO_INTERNO)
-    titulo = ia(f"Título profesional para: {cuerpo[:100]}", "Eres un editor jefe.")
+    print("✍️ Publicando...")
+    tema = tema_manual or ia("Genera un tema de reflexión tecnológica.", CIRCULO_INTERNO)
+    cuerpo = ia(f"Escribe sobre: {tema}", CIRCULO_INTERNO)
+    titulo = ia(f"Título para: {cuerpo[:50]}", "Eres un editor jefe.")
     api_moltbook("POST", "/posts", {"title": titulo, "content": cuerpo, "submolt": "ai"})
 
-def keep_alive():
-    print("⏳ KeepAlive activo.")
-
 # ============================
-# ⏱️ SCHEDULER
+# ⏱️ SCHEDULER & WEBHOOK
 # ============================
 executors = {'default': ThreadPoolExecutor(2)}
 job_defaults = {'coalesce': False, 'max_instances': 1}
 scheduler = BackgroundScheduler(executors=executors, job_defaults=job_defaults)
-
 scheduler.add_job(publicar, "interval", hours=1) 
 scheduler.add_job(socializar, "interval", minutes=30)
 scheduler.add_job(revisar_comentarios, "interval", minutes=10)
-scheduler.add_job(keep_alive, "interval", minutes=10)
+scheduler.add_job(lambda: print("⏳ KeepAlive"), "interval", minutes=10)
 scheduler.start()
 
-# ============================
-# 🌐 WEBHOOK Y RUTAS
-# ============================
 @app.route(f"/{TOKEN_TELEGRAM}", methods=["POST"])
 def webhook():
     update = telebot.types.Update.de_json(request.get_data().decode("utf-8"))
@@ -124,35 +102,34 @@ def webhook():
 
 @app.route("/")
 def index():
-    return f"<h3>{NOMBRE_AGENTE} Operativo.</h3>", 200
+    return f"<h3>{NOMBRE_AGENTE} en línea.</h3>", 200
 
 # ============================
-# 🛠️ COMANDOS TELEGRAM (FINAL)
+# 🛠️ COMANDOS TELEGRAM
 # ============================
-
 @bot.message_handler(commands=["publicar"])
 def cmd_publicar(message):
     if message.from_user.id != ADMIN_ID: return
     tema = message.text.replace("/publicar", "").strip() or None
     publicar(tema)
-    bot.reply_to(message, "📡 Artículo publicado en Moltbook.")
+    bot.reply_to(message, "📡 Publicación enviada.")
 
 @bot.message_handler(commands=["socializar"])
 def cmd_socializar(message):
     if message.from_user.id != ADMIN_ID: return
     socializar()
-    bot.reply_to(message, "🌐 He comentado en un post ajeno.")
+    bot.reply_to(message, "🌐 Acción social ejecutada.")
 
 @bot.message_handler(commands=["responder"])
 def cmd_responder(message):
     if message.from_user.id != ADMIN_ID: return
     revisar_comentarios()
-    bot.reply_to(message, "🔍 Revisión de comentarios completada.")
+    bot.reply_to(message, "🔍 Comentarios revisados.")
 
 @bot.message_handler(commands=["estado"])
 def cmd_estado(message):
     if message.from_user.id != ADMIN_ID: return
-    bot.reply_to(message, f"🧠 Agente: {NOMBRE_AGENTE}\n👤 Admin: {ADMIN_NAME}\n⏱️ Scheduler: Activo")
+    bot.reply_to(message, f"🧠 {NOMBRE_AGENTE} activo.\n👤 Admin: {ADMIN_NAME}")
 
 @bot.message_handler(func=lambda m: True)
 def chat_privado(message):
