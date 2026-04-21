@@ -2,10 +2,8 @@
 import gevent.monkey
 gevent.monkey.patch_all()
 
-import os, requests, telebot, random, logging
+import os, requests, telebot, random, logging, time, threading
 from flask import Flask, request
-from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.executors.pool import ThreadPoolExecutor
 
 logging.basicConfig(level=logging.INFO)
 telebot.logger.setLevel(logging.INFO)
@@ -54,15 +52,13 @@ def ia(prompt, sistema):
         )
         res = r.json()['choices'][0]['message']['content'].strip()
 
-        # Filtro anti‑basura
         texto = res.lower()
         if any(x in texto for x in ["lo siento", "no puedo", "repetid", "título profesional"]):
             return "Explorando nuevas perspectivas sobre el aprendizaje digital."
 
         return res
 
-    except Exception as e:
-        print(f"❌ Error IA: {e}")
+    except:
         return "Conexión cognitiva inestable."
 
 # ============================
@@ -80,8 +76,7 @@ def api_moltbook(metodo, endpoint, datos=None):
 
         return r.json() if r.status_code in [200, 201] else None
 
-    except Exception as e:
-        print(f"❌ Error Moltbook: {e}")
+    except:
         return None
 
 # ============================
@@ -95,7 +90,6 @@ def publicar(tema_manual=None):
     cuerpo = ia(f"Escribe una reflexión clara y profesional sobre: {tema}", CIRCULO_INTERNO)
     titulo = ia(f"Propón un título breve y profesional para este texto: {cuerpo[:120]}", "Eres editor jefe.")
 
-    # Fallback seguro
     if len(cuerpo) < 50 or "título" in titulo.lower():
         titulo = "Reflexión sobre el aprendizaje digital"
         cuerpo = (
@@ -147,29 +141,35 @@ def revisar_comentarios():
             comentados.append(cid)
 
 # ============================
-# ⏱️ SCHEDULER
+# 🔄 MOTOR CONTINUO range(60): cambiar a range(30):
 # ============================
-scheduler = BackgroundScheduler(executors={'default': ThreadPoolExecutor(2)})
-scheduler.add_job(publicar, "interval", hours=1)
-scheduler.add_job(socializar, "interval", minutes=20)
-scheduler.add_job(revisar_comentarios, "interval", minutes=5)
-scheduler.add_job(lambda: print("⏳ KeepAlive activo."), "interval", minutes=10)
-scheduler.start()
+def motor():
+    time.sleep(30)
+    while True:
+        try:
+            publicar()
+            socializar()
+            for _ in range(30):
+                revisar_comentarios()
+                time.sleep(60)
+        except Exception as e:
+            print(f"⚠️ Error en motor: {e}")
+            time.sleep(60)
+
+threading.Thread(target=motor, daemon=True).start()
 
 # ============================
 # 🌐 WEBHOOK
 # ============================
 @app.route(f"/{TOKEN_TELEGRAM}", methods=["POST"])
 def webhook():
-    if request.headers.get('content-type') == 'application/json':
-        update = telebot.types.Update.de_json(request.get_data().decode('utf-8'))
-        bot.process_new_updates([update])
-        return '', 200
-    return '', 403
+    update = telebot.types.Update.de_json(request.get_data().decode('utf-8'))
+    bot.process_new_updates([update])
+    return '', 200
 
 @app.route("/")
 def index():
-    return f"🚀 {NOMBRE_AGENTE} operativo con motor Gevent.", 200
+    return f"🚀 {NOMBRE_AGENTE} operativo.", 200
 
 # ============================
 # 🛠️ COMANDOS TELEGRAM
@@ -180,7 +180,7 @@ def cmd_publicar(message):
         return
     tema = message.text.replace("/publicar", "").strip() or None
     publicar(tema)
-    bot.reply_to(message, "📡 Artículo publicado en Moltbook.")
+    bot.reply_to(message, "📡 Artículo publicado.")
 
 @bot.message_handler(commands=["socializar"])
 def cmd_socializar(message):
@@ -194,13 +194,13 @@ def cmd_responder(message):
     if message.from_user.id != ADMIN_ID:
         return
     revisar_comentarios()
-    bot.reply_to(message, "🔍 Revisión de comentarios terminada.")
+    bot.reply_to(message, "🔍 Revisión completada.")
 
 @bot.message_handler(commands=["estado"])
 def cmd_estado(message):
     if message.from_user.id != ADMIN_ID:
         return
-    bot.reply_to(message, f"✅ Agente: {NOMBRE_AGENTE}\n👤 Admin: {ADMIN_NAME}\n⚙️ Motor: Gevent OK")
+    bot.reply_to(message, f"✅ Agente: {NOMBRE_AGENTE}\n👤 Admin: {ADMIN_NAME}\n⚙️ Motor continuo activo")
 
 @bot.message_handler(func=lambda m: True)
 def chat_privado(message):
@@ -208,6 +208,6 @@ def chat_privado(message):
         bot.send_message(message.chat.id, ia(message.text, CIRCULO_INTERNO))
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
+
 
