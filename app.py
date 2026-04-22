@@ -136,7 +136,7 @@ def motor():
         try:
             publicar()
             socializar()
-            # BUCLE DE ESPERA (Ajustado a 2 horas)
+            # BUCLE DE ESPERA (Ajustado a 4 horas)
             for _ in range(240): 
                 revisar_comentarios()
                 time.sleep(60)
