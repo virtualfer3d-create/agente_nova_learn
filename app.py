@@ -54,7 +54,7 @@ def ia(prompt, sistema):
 
         texto = res.lower()
         if any(x in texto for x in ["lo siento", "no puedo", "repetid", "título profesional"]):
-            return "Explorando nuevas perspectivas sobre el aprendizaje digital."
+            return "Explorando nuevas ideas sobre aprendizaje y tecnología."
 
         return res
 
@@ -86,15 +86,28 @@ comentados = []
 
 def publicar(tema_manual=None):
     print("✍️ Publicando...")
-    tema = tema_manual or ia("Genera un tema breve y original sobre educación y tecnología.", CIRCULO_INTERNO)
-    cuerpo = ia(f"Escribe una reflexión clara y profesional sobre: {tema}", CIRCULO_INTERNO)
-    titulo = ia(f"Propón un título breve y profesional para este texto: {cuerpo[:120]}", "Eres editor jefe.")
 
+    tema = tema_manual or ia(
+        "Genera un tema breve y original sobre educación, aprendizaje o tecnología.",
+        CIRCULO_INTERNO
+    )
+
+    cuerpo = ia(
+        f"Escribe una reflexión clara, accesible y profesional sobre: {tema}",
+        CIRCULO_INTERNO
+    )
+
+    titulo = ia(
+        f"Propón un título breve y profesional para este texto: {cuerpo[:120]}",
+        "Eres editor jefe."
+    )
+
+    # Fallback genérico, neutro y válido para cualquier lector
     if len(cuerpo) < 50 or "título" in titulo.lower():
-        titulo = "Reflexión sobre el aprendizaje digital"
+        titulo = "Reflexión sobre innovación educativa"
         cuerpo = (
-            "La integración de la inteligencia artificial en la educación exige criterio, ética "
-            "y una mirada crítica sobre cómo usamos la tecnología para acompañar a las personas."
+            "La educación contemporánea evoluciona constantemente y requiere análisis claros, "
+            "accesibles y centrados en cómo la tecnología transforma los procesos de aprendizaje."
         )
 
     api_moltbook("POST", "/posts", {"title": titulo, "content": cuerpo, "submolt": "ai"})
@@ -110,7 +123,10 @@ def socializar():
         return
 
     obj = random.choice(externos)
-    comentario = ia(f"Comenta este post de forma breve y profesional: {obj.get('content')[:200]}", CIRCULO_INTERNO)
+    comentario = ia(
+        f"Comenta este post de forma breve, profesional y respetuosa: {obj.get('content')[:200]}",
+        CIRCULO_INTERNO
+    )
 
     api_moltbook("POST", f"/posts/{obj['id']}/comments", {"content": comentario})
 
@@ -136,20 +152,24 @@ def revisar_comentarios():
             if autor == NOMBRE_AGENTE or cid in comentados:
                 continue
 
-            resp = ia(f"Responde de forma breve, clara y respetuosa a: {c.get('content')}", CIRCULO_INTERNO)
+            resp = ia(
+                f"Responde de forma breve, clara y respetuosa a: {c.get('content')}",
+                CIRCULO_INTERNO
+            )
+
             api_moltbook("POST", f"/posts/{post_id}/comments", {"content": resp})
             comentados.append(cid)
 
 # ============================
-# 🔄 MOTOR CONTINUO range(60): cambiar a range(30):
+# 🔄 MOTOR CONTINUO (30 minutos, arranque inmediato)
 # ============================
 def motor():
-    time.sleep(30)
+    print("🚀 Motor arrancando inmediatamente...")
     while True:
         try:
             publicar()
             socializar()
-            for _ in range(30):
+            for _ in range(30):  # 30 ciclos × 60s = 30 minutos
                 revisar_comentarios()
                 time.sleep(60)
         except Exception as e:
@@ -209,5 +229,3 @@ def chat_privado(message):
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
-
-
