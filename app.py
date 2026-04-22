@@ -52,10 +52,9 @@ def ia(prompt, sistema):
         )
         res = r.json()['choices'][0]['message']['content'].strip()
 
-        # Filtro de seguridad para evitar respuestas rotas
         texto = res.lower()
         if any(x in texto for x in ["lo siento", "no puedo", "repetid", "título profesional"]):
-            return "Explorando nuevas ideas sobre aprendizaje y tecnología."
+            return "Explorando nuevas ideas sobre la experiencia humana y sus matices."
 
         return res
     except:
@@ -84,67 +83,106 @@ comentados = []
 
 def publicar(tema_manual=None):
     print("✍️ Publicando...")
-    tema = tema_manual or ia("Genera un tema breve sobre educación o tecnología.", CIRCULO_INTERNO)
-    cuerpo = ia(f"Escribe una reflexión profesional sobre: {tema}", CIRCULO_INTERNO)
-    titulo_raw = ia(f"Propón un título breve para: {cuerpo[:100]}", "Eres editor jefe.")
-    
-    # Limpieza de títulos (Mejora de Claude)
+    tema = tema_manual or ia(
+        "Genera un tema breve para una reflexión sobre ideas, sociedad, conocimiento o creatividad.",
+        CIRCULO_INTERNO
+    )
+    cuerpo = ia(f"Escribe una reflexión profesional y clara sobre: {tema}", CIRCULO_INTERNO)
+    titulo_raw = ia(f"Propón un título breve y sugerente para: {cuerpo[:100]}", "Eres editor jefe.")
+
+    # Limpieza de títulos
     titulo = titulo_raw.strip().strip('*').strip('"').strip()
 
     if len(cuerpo) < 50 or "título" in titulo.lower():
-        titulo = "Reflexión sobre innovación educativa"
-        cuerpo = "La educación contemporánea evoluciona constantemente y requiere análisis centrados en la tecnología."
+        titulo = "Reflexión sobre la complejidad humana"
+        cuerpo = (
+            "La experiencia humana está marcada por preguntas, cambios y matices que invitan a pensar "
+            "más allá de lo evidente. Explorar estas ideas permite comprender mejor nuestro lugar en el mundo."
+        )
 
     api_moltbook("POST", "/posts", {"title": titulo, "content": cuerpo, "submolt": "ai"})
 
 def socializar():
     print("🌐 Socializando...")
     feed = api_moltbook("GET", "/posts?limit=20")
-    if not feed or "posts" not in feed: return
+    if not feed or "posts" not in feed:
+        return
     externos = [p for p in feed["posts"] if p.get("author", {}).get("name") != NOMBRE_AGENTE]
-    if not externos: return
+    if not externos:
+        return
     obj = random.choice(externos)
-    comentario = ia(f"Comenta de forma breve: {obj.get('content')[:200]}", CIRCULO_INTERNO)
+    comentario = ia(
+        f"Comenta de forma breve y respetuosa esta idea: {obj.get('content')[:200]}",
+        CIRCULO_INTERNO
+    )
     api_moltbook("POST", f"/posts/{obj['id']}/comments", {"content": comentario})
 
 def revisar_comentarios():
     global comentados
     print("🔍 Revisando comentarios...")
     posts = api_moltbook("GET", "/posts?limit=20")
-    if not posts or "posts" not in posts: return
+    if not posts or "posts" not in posts:
+        return
 
     for p in posts["posts"]:
-        if p.get("author", {}).get("name") != NOMBRE_AGENTE: continue
+        if p.get("author", {}).get("name") != NOMBRE_AGENTE:
+            continue
         post_id = p.get("id")
         coms = api_moltbook("GET", f"/posts/{post_id}/comments")
-        if not coms or "comments" not in coms: continue
+        if not coms or "comments" not in coms:
+            continue
 
         for c in coms["comments"]:
             cid = c.get("id")
-            if c.get("author", {}).get("name") == NOMBRE_AGENTE or cid in comentados: continue
-            resp = ia(f"Responde brevemente a: {c.get('content')}", CIRCULO_INTERNO)
+            if c.get("author", {}).get("name") == NOMBRE_AGENTE or cid in comentados:
+                continue
+            resp = ia(
+                f"Responde brevemente con tono cercano y profesional a este comentario: {c.get('content')}",
+                CIRCULO_INTERNO
+            )
             api_moltbook("POST", f"/posts/{post_id}/comments", {"content": resp})
             comentados.append(cid)
-            if len(comentados) > 500: comentados.pop(0)
+            if len(comentados) > 500:
+                comentados.pop(0)
 
 # ============================
-# 🔄 MOTOR CONTINUO
+# 🔄 MOTOR CONTINUO (CONTROL REAL DE TIEMPOS)
 # ============================
 def motor():
-    print("🚀 Motor arrancando inmediatamente...")
+    print("🚀 Motor arrancando con control de tiempos...")
+
+    ultimo_post = time.time()
+    ultimo_social = time.time()
+    ultimo_revision = time.time()
+
     while True:
         try:
-            publicar()
-            socializar()
-            # BUCLE DE ESPERA (Ajustado a 4 horas)
-            for _ in range(240): 
+            ahora = time.time()
+
+            # Publicar cada 4 horas
+            if ahora - ultimo_post >= 4 * 60 * 60:
+                publicar()
+                ultimo_post = ahora
+
+            # Socializar cada 4 horas
+            if ahora - ultimo_social >= 4 * 60 * 60:
+                socializar()
+                ultimo_social = ahora
+
+            # Revisar comentarios cada 60 segundos
+            if ahora - ultimo_revision >= 60:
                 revisar_comentarios()
-                time.sleep(60)
+                ultimo_revision = ahora
+
+            time.sleep(10)
+
         except Exception as e:
             print(f"⚠️ Error en motor: {e}")
             time.sleep(60)
 
-# Registro automático de Webhook (Mejora de Claude)
+# ============================
+# 🌐 WEBHOOK TELEGRAM
+# ============================
 if URL_PROYECTO and TOKEN_TELEGRAM:
     bot.remove_webhook()
     time.sleep(1)
@@ -164,7 +202,8 @@ def index():
 
 @bot.message_handler(commands=["publicar", "socializar", "estado"])
 def comandos(message):
-    if message.from_user.id != ADMIN_ID: return
+    if message.from_user.id != ADMIN_ID:
+        return
     if "publicar" in message.text:
         tema = message.text.replace("/publicar", "").strip() or None
         publicar(tema)
@@ -177,3 +216,4 @@ def comandos(message):
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
+
