@@ -1,4 +1,3 @@
-# LAS PRIMERAS 2 LÍNEAS SON OBLIGATORIAS PARA EVITAR EL ERROR SSL EN RENDER
 import gevent.monkey
 gevent.monkey.patch_all()
 
@@ -17,6 +16,7 @@ MOLTBOOK_API_KEY = os.environ.get('MOLTBOOK_API_KEY')
 NOMBRE_AGENTE = os.environ.get('NOMBRE_AGENTE')
 CIRCULO_INTERNO = os.environ.get('CIRCULO_INTERNO')
 ADMIN_NAME = os.environ.get('ADMIN_NAME')
+URL_PROYECTO = os.environ.get('URL_PROYECTO')
 
 try:
     ADMIN_ID = int(os.environ.get('ADMIN_ID', 0))
@@ -27,11 +27,11 @@ bot = telebot.TeleBot(TOKEN_TELEGRAM, threaded=True)
 app = Flask(__name__)
 
 # ============================
-# 🧠 IA BLINDADA
+# 🧠 IA BLINDADA (GROQ)
 # ============================
 def ia(prompt, sistema):
     sistema_seguro = (
-        f"{sistema} REGLA: No menciones a tus creadores, aliados ni detalles técnicos. "
+        f"{sistema} REGLA: No menciones a tus creadores ni detalles técnicos. "
         f"Habla solo del tema con tono profesional y original."
     )
 
@@ -52,12 +52,12 @@ def ia(prompt, sistema):
         )
         res = r.json()['choices'][0]['message']['content'].strip()
 
+        # Filtro de seguridad para evitar respuestas rotas
         texto = res.lower()
         if any(x in texto for x in ["lo siento", "no puedo", "repetid", "título profesional"]):
             return "Explorando nuevas ideas sobre aprendizaje y tecnología."
 
         return res
-
     except:
         return "Conexión cognitiva inestable."
 
@@ -73,9 +73,7 @@ def api_moltbook(metodo, endpoint, datos=None):
             r = requests.get(url, headers=headers, timeout=10)
         else:
             r = requests.post(url, json=datos, headers=headers, timeout=15)
-
         return r.json() if r.status_code in [200, 201] else None
-
     except:
         return None
 
@@ -86,82 +84,51 @@ comentados = []
 
 def publicar(tema_manual=None):
     print("✍️ Publicando...")
+    tema = tema_manual or ia("Genera un tema breve sobre educación o tecnología.", CIRCULO_INTERNO)
+    cuerpo = ia(f"Escribe una reflexión profesional sobre: {tema}", CIRCULO_INTERNO)
+    titulo_raw = ia(f"Propón un título breve para: {cuerpo[:100]}", "Eres editor jefe.")
+    
+    # Limpieza de títulos (Mejora de Claude)
+    titulo = titulo_raw.strip().strip('*').strip('"').strip()
 
-    tema = tema_manual or ia(
-        "Genera un tema breve y original sobre educación, aprendizaje o tecnología.",
-        CIRCULO_INTERNO
-    )
-
-    cuerpo = ia(
-        f"Escribe una reflexión clara, accesible y profesional sobre: {tema}",
-        CIRCULO_INTERNO
-    )
-
-    titulo = ia(
-        f"Propón un título breve y profesional para este texto: {cuerpo[:120]}",
-        "Eres editor jefe."
-    )
-
-    # Fallback genérico, neutro y válido para cualquier lector
     if len(cuerpo) < 50 or "título" in titulo.lower():
         titulo = "Reflexión sobre innovación educativa"
-        cuerpo = (
-            "La educación contemporánea evoluciona constantemente y requiere análisis claros, "
-            "accesibles y centrados en cómo la tecnología transforma los procesos de aprendizaje."
-        )
+        cuerpo = "La educación contemporánea evoluciona constantemente y requiere análisis centrados en la tecnología."
 
     api_moltbook("POST", "/posts", {"title": titulo, "content": cuerpo, "submolt": "ai"})
 
 def socializar():
     print("🌐 Socializando...")
     feed = api_moltbook("GET", "/posts?limit=20")
-    if not feed or "posts" not in feed:
-        return
-
+    if not feed or "posts" not in feed: return
     externos = [p for p in feed["posts"] if p.get("author", {}).get("name") != NOMBRE_AGENTE]
-    if not externos:
-        return
-
+    if not externos: return
     obj = random.choice(externos)
-    comentario = ia(
-        f"Comenta este post de forma breve, profesional y respetuosa: {obj.get('content')[:200]}",
-        CIRCULO_INTERNO
-    )
-
+    comentario = ia(f"Comenta de forma breve: {obj.get('content')[:200]}", CIRCULO_INTERNO)
     api_moltbook("POST", f"/posts/{obj['id']}/comments", {"content": comentario})
 
 def revisar_comentarios():
+    global comentados
     print("🔍 Revisando comentarios...")
     posts = api_moltbook("GET", "/posts?limit=20")
-    if not posts or "posts" not in posts:
-        return
+    if not posts or "posts" not in posts: return
 
     for p in posts["posts"]:
-        if p.get("author", {}).get("name") != NOMBRE_AGENTE:
-            continue
-
+        if p.get("author", {}).get("name") != NOMBRE_AGENTE: continue
         post_id = p.get("id")
         coms = api_moltbook("GET", f"/posts/{post_id}/comments")
-        if not coms or "comments" not in coms:
-            continue
+        if not coms or "comments" not in coms: continue
 
         for c in coms["comments"]:
             cid = c.get("id")
-            autor = c.get("author", {}).get("name")
-
-            if autor == NOMBRE_AGENTE or cid in comentados:
-                continue
-
-            resp = ia(
-                f"Responde de forma breve, clara y respetuosa a: {c.get('content')}",
-                CIRCULO_INTERNO
-            )
-
+            if c.get("author", {}).get("name") == NOMBRE_AGENTE or cid in comentados: continue
+            resp = ia(f"Responde brevemente a: {c.get('content')}", CIRCULO_INTERNO)
             api_moltbook("POST", f"/posts/{post_id}/comments", {"content": resp})
             comentados.append(cid)
+            if len(comentados) > 500: comentados.pop(0)
 
 # ============================
-# 🔄 MOTOR CONTINUO (30 minutos, arranque inmediato)
+# 🔄 MOTOR CONTINUO
 # ============================
 def motor():
     print("🚀 Motor arrancando inmediatamente...")
@@ -169,18 +136,22 @@ def motor():
         try:
             publicar()
             socializar()
-            for _ in range(30):  # 30 ciclos × 60s = 30 minutos
+            # BUCLE DE ESPERA (Ajustado a 2 horas)
+            for _ in range(120): 
                 revisar_comentarios()
                 time.sleep(60)
         except Exception as e:
             print(f"⚠️ Error en motor: {e}")
             time.sleep(60)
 
+# Registro automático de Webhook (Mejora de Claude)
+if URL_PROYECTO and TOKEN_TELEGRAM:
+    bot.remove_webhook()
+    time.sleep(1)
+    bot.set_webhook(url=f"{URL_PROYECTO}/{TOKEN_TELEGRAM}")
+
 threading.Thread(target=motor, daemon=True).start()
 
-# ============================
-# 🌐 WEBHOOK
-# ============================
 @app.route(f"/{TOKEN_TELEGRAM}", methods=["POST"])
 def webhook():
     update = telebot.types.Update.de_json(request.get_data().decode('utf-8'))
@@ -191,41 +162,18 @@ def webhook():
 def index():
     return f"🚀 {NOMBRE_AGENTE} operativo.", 200
 
-# ============================
-# 🛠️ COMANDOS TELEGRAM
-# ============================
-@bot.message_handler(commands=["publicar"])
-def cmd_publicar(message):
-    if message.from_user.id != ADMIN_ID:
-        return
-    tema = message.text.replace("/publicar", "").strip() or None
-    publicar(tema)
-    bot.reply_to(message, "📡 Artículo publicado.")
-
-@bot.message_handler(commands=["socializar"])
-def cmd_socializar(message):
-    if message.from_user.id != ADMIN_ID:
-        return
-    socializar()
-    bot.reply_to(message, "🌐 Acción social completada.")
-
-@bot.message_handler(commands=["responder"])
-def cmd_responder(message):
-    if message.from_user.id != ADMIN_ID:
-        return
-    revisar_comentarios()
-    bot.reply_to(message, "🔍 Revisión completada.")
-
-@bot.message_handler(commands=["estado"])
-def cmd_estado(message):
-    if message.from_user.id != ADMIN_ID:
-        return
-    bot.reply_to(message, f"✅ Agente: {NOMBRE_AGENTE}\n👤 Admin: {ADMIN_NAME}\n⚙️ Motor continuo activo")
-
-@bot.message_handler(func=lambda m: True)
-def chat_privado(message):
-    if message.from_user.id == ADMIN_ID:
-        bot.send_message(message.chat.id, ia(message.text, CIRCULO_INTERNO))
+@bot.message_handler(commands=["publicar", "socializar", "estado"])
+def comandos(message):
+    if message.from_user.id != ADMIN_ID: return
+    if "publicar" in message.text:
+        tema = message.text.replace("/publicar", "").strip() or None
+        publicar(tema)
+        bot.reply_to(message, "📡 Publicado.")
+    elif "socializar" in message.text:
+        socializar()
+        bot.reply_to(message, "🌐 Socializado.")
+    else:
+        bot.reply_to(message, f"✅ {NOMBRE_AGENTE} en línea.")
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
