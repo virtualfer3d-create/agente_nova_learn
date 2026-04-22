@@ -137,7 +137,7 @@ def motor():
             publicar()
             socializar()
             # BUCLE DE ESPERA (Ajustado a 2 horas)
-            for _ in range(120): 
+            for _ in range(240): 
                 revisar_comentarios()
                 time.sleep(60)
         except Exception as e:
