@@ -1,6 +1,3 @@
-import gevent.monkey
-gevent.monkey.patch_all()
-
 import os, requests, telebot, time, threading, random
 from flask import Flask, request
 
@@ -77,7 +74,6 @@ def publicar(tema=None):
     tema = tema or ia("Genera un tema breve para una reflexión.", SISTEMA)
     cuerpo = ia(f"Escribe una reflexión sobre: {tema}", SISTEMA)
 
-    # TÍTULO ESTRICTO
     titulo_raw = ia(
         f"Escribe SOLO el título para este texto, sin frases previas ni comillas: {cuerpo[:120]}",
         "Eres editor. Responde únicamente con el título limpio."
@@ -142,7 +138,7 @@ def motor():
             time.sleep(60)
 
 # ---------------------------------------------------------
-# KEEP-ALIVE (AGRESIVO)
+# KEEP-ALIVE
 # ---------------------------------------------------------
 def keep():
     while True:
@@ -190,6 +186,7 @@ def cmd(m):
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
+
 
 
 
