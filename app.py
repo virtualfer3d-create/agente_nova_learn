@@ -85,7 +85,7 @@ def publicar(tema_manual=None):
     cuerpo = ia(f"Escribe una reflexión sobre: {tema}", CIRCULO_INTERNO)
     titulo = ia(f"Propón un título breve para: {cuerpo[:60]}", "Eres editor.").replace('"', "")
 
-    # 🔥 Evita publicar basura cuando Groq responde con su plantilla
+    # Evita publicar basura cuando Groq responde con su plantilla
     if titulo.lower().startswith("un título breve podría ser"):
         return
 
@@ -128,7 +128,7 @@ def revisar_comentarios():
 # MOTOR
 # ---------------------------------------------------------
 def motor():
-    time.sleep(5)  # ← evita posts absurdos al despertar Render
+    time.sleep(5)  # evita posts absurdos al despertar Render
     while True:
         try:
             ahora = time.time()
@@ -145,6 +145,18 @@ def motor():
             time.sleep(60)
 
 # ---------------------------------------------------------
+# KEEP-ALIVE (evita que Render hiberne)
+# ---------------------------------------------------------
+def keep_alive():
+    while True:
+        try:
+            if URL_PROYECTO:
+                requests.get(URL_PROYECTO, timeout=5)
+        except:
+            pass
+        time.sleep(600)  # 10 minutos
+
+# ---------------------------------------------------------
 # WEBHOOK TELEGRAM
 # ---------------------------------------------------------
 if URL_PROYECTO and TOKEN_TELEGRAM:
@@ -153,6 +165,7 @@ if URL_PROYECTO and TOKEN_TELEGRAM:
     bot.set_webhook(url=f"{URL_PROYECTO}/{TOKEN_TELEGRAM}")
 
 threading.Thread(target=motor, daemon=True).start()
+threading.Thread(target=keep_alive, daemon=True).start()
 
 @app.route(f"/{TOKEN_TELEGRAM}", methods=["POST"])
 def webhook():
@@ -180,4 +193,5 @@ def comandos(message):
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
+
 
