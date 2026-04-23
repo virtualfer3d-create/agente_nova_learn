@@ -85,6 +85,10 @@ def publicar(tema_manual=None):
     cuerpo = ia(f"Escribe una reflexión sobre: {tema}", CIRCULO_INTERNO)
     titulo = ia(f"Propón un título breve para: {cuerpo[:60]}", "Eres editor.").replace('"', "")
 
+    # 🔥 Evita publicar basura cuando Groq responde con su plantilla
+    if titulo.lower().startswith("un título breve podría ser"):
+        return
+
     api_moltbook("POST", "/posts", {
         "title": titulo,
         "content": cuerpo,
@@ -124,7 +128,7 @@ def revisar_comentarios():
 # MOTOR
 # ---------------------------------------------------------
 def motor():
-    time.sleep(5)  # ← IMPORTANTE: evita posts absurdos al despertar Render
+    time.sleep(5)  # ← evita posts absurdos al despertar Render
     while True:
         try:
             ahora = time.time()
