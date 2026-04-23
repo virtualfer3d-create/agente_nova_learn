@@ -1,41 +1,29 @@
 import gevent.monkey
 gevent.monkey.patch_all()
 
-import os, requests, telebot, random, logging, time, threading
+import os, requests, telebot, time, threading, random
 from flask import Flask, request
 
-logging.basicConfig(level=logging.INFO)
-telebot.logger.setLevel(logging.INFO)
-
 # ---------------------------------------------------------
-# CONFIGURACIÓN DEL AGENTE (variables de entorno)
+# CONFIGURACIÓN
 # ---------------------------------------------------------
-TOKEN_TELEGRAM = os.environ.get('TOKEN_TELEGRAM')
-GROQ_API_KEY = os.environ.get('GROQ_API_KEY')
-MOLTBOOK_API_KEY = os.environ.get('MOLTBOOK_API_KEY')
-NOMBRE_AGENTE = os.environ.get('NOMBRE_AGENTE')
-CIRCULO_INTERNO = os.environ.get('CIRCULO_INTERNO')
-URL_PROYECTO = os.environ.get('URL_PROYECTO')
-
-try:
-    ADMIN_ID = int(os.environ.get('ADMIN_ID', 0))
-except:
-    ADMIN_ID = 0
+TOKEN_TELEGRAM = os.environ.get("TOKEN_TELEGRAM")
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
+MOLTBOOK_API_KEY = os.environ.get("MOLTBOOK_API_KEY")
+NOMBRE_AGENTE = os.environ.get("NOMBRE_AGENTE", "Agente IA")
+CIRCULO_INTERNO = os.environ.get("CIRCULO_INTERNO", "Eres una IA creativa.")
+URL_PROYECTO = os.environ.get("URL_PROYECTO")
+ADMIN_ID = int(os.environ.get("ADMIN_ID", 0))
 
 bot = telebot.TeleBot(TOKEN_TELEGRAM, threaded=True)
 app = Flask(__name__)
 
-# Archivo donde se guarda la hora del último post
 STATE_FILE = "ultimo_post.txt"
 
 # ---------------------------------------------------------
-# PERSISTENCIA: LECTURA Y ESCRITURA DEL TIMESTAMP
+# PERSISTENCIA
 # ---------------------------------------------------------
 def obtener_timestamp():
-    """
-    Devuelve el timestamp del último post.
-    Si no existe el archivo, devuelve 0.
-    """
     if os.path.exists(STATE_FILE):
         try:
             with open(STATE_FILE, "r") as f:
@@ -45,9 +33,6 @@ def obtener_timestamp():
     return 0
 
 def guardar_timestamp():
-    """
-    Guarda el timestamp actual como última publicación.
-    """
     try:
         with open(STATE_FILE, "w") as f:
             f.write(str(time.time()))
@@ -55,17 +40,13 @@ def guardar_timestamp():
         pass
 
 # ---------------------------------------------------------
-# MÓDULO DE IA (GROQ)
+# IA (GROQ)
 # ---------------------------------------------------------
 def ia(prompt, sistema):
-    """
-    Envía un prompt a la IA y devuelve la respuesta.
-    Mantiene un estilo profesional y genérico.
-    """
     payload = {
         "model": "llama-3.1-8b-instant",
         "messages": [
-            {"role": "system", "content": f"{sistema} Responde de forma profesional y original sin tecnicismos."},
+            {"role": "system", "content": sistema},
             {"role": "user", "content": prompt}
         ],
         "temperature": 0.7
@@ -77,17 +58,14 @@ def ia(prompt, sistema):
             json=payload,
             timeout=15
         )
-        return r.json()['choices'][0]['message']['content'].strip()
+        return r.json()["choices"][0]["message"]["content"].strip()
     except:
-        return "Explorando nuevas ideas sobre la experiencia humana."
+        return ""
 
 # ---------------------------------------------------------
-# API DE MOLTBOOK
+# API MOLTBOOK
 # ---------------------------------------------------------
 def api_moltbook(metodo, endpoint, datos=None):
-    """
-    Envia peticiones GET o POST a la API de Moltbook.
-    """
     url = f"https://moltbook.com/api/v1{endpoint}"
     headers = {"Authorization": f"Bearer {MOLTBOOK_API_KEY}", "Content-Type": "application/json"}
     try:
@@ -100,30 +78,22 @@ def api_moltbook(metodo, endpoint, datos=None):
         return None
 
 # ---------------------------------------------------------
-# ACCIONES DEL AGENTE
+# ACCIONES
 # ---------------------------------------------------------
 def publicar(tema_manual=None):
-    """
-    Publica un post en Moltbook.
-    Si no se da un tema manual, lo genera la IA.
-    """
-    tema = tema_manual or ia("Genera un tema breve para una reflexión general.", CIRCULO_INTERNO)
+    tema = tema_manual or ia("Genera un tema breve para una reflexión.", CIRCULO_INTERNO)
     cuerpo = ia(f"Escribe una reflexión sobre: {tema}", CIRCULO_INTERNO)
-    titulo_raw = ia(f"Propón un título breve para: {cuerpo[:60]}", "Eres editor.")
-    titulo = titulo_raw.strip().strip('*').strip('"')
+    titulo = ia(f"Propón un título breve para: {cuerpo[:60]}", "Eres editor.").replace('"', "")
 
-    # Fallback genérico
-    if len(cuerpo) < 50 or "título" in titulo.lower():
-        titulo = "Reflexión sobre la complejidad humana"
-        cuerpo = "La experiencia humana está marcada por matices que invitan a pensar más allá de lo evidente."
+    api_moltbook("POST", "/posts", {
+        "title": titulo,
+        "content": cuerpo,
+        "submolt": "ai"
+    })
 
-    api_moltbook("POST", "/posts", {"title": titulo, "content": cuerpo, "submolt": "ai"})
     guardar_timestamp()
 
 def socializar():
-    """
-    Comenta publicaciones de otros usuarios.
-    """
     feed = api_moltbook("GET", "/posts?limit=20")
     if not feed or "posts" not in feed:
         return
@@ -135,9 +105,6 @@ def socializar():
     api_moltbook("POST", f"/posts/{obj['id']}/comments", {"content": comentario})
 
 def revisar_comentarios():
-    """
-    Responde a comentarios en sus propios posts.
-    """
     posts = api_moltbook("GET", "/posts?limit=20")
     if not posts or "posts" not in posts:
         return
@@ -154,21 +121,15 @@ def revisar_comentarios():
             api_moltbook("POST", f"/posts/{p['id']}/comments", {"content": resp})
 
 # ---------------------------------------------------------
-# MOTOR PRINCIPAL CON PERSISTENCIA
+# MOTOR
 # ---------------------------------------------------------
 def motor():
-    """
-    Motor continuo que:
-    - Publica cada 4 horas reales (aunque Render se duerma)
-    - Socializa después de publicar
-    - Revisa comentarios cada minuto
-    """
     while True:
         try:
             ahora = time.time()
             ultimo = obtener_timestamp()
 
-            # Primera vez o han pasado 4 horas reales
+            # 30 minutos (para pruebas)
             if ultimo == 0 or (ahora - ultimo >= 30 * 60):
                 publicar()
                 socializar()
@@ -180,7 +141,7 @@ def motor():
             time.sleep(60)
 
 # ---------------------------------------------------------
-# WEBHOOK DE TELEGRAM
+# WEBHOOK TELEGRAM
 # ---------------------------------------------------------
 if URL_PROYECTO and TOKEN_TELEGRAM:
     bot.remove_webhook()
@@ -191,9 +152,9 @@ threading.Thread(target=motor, daemon=True).start()
 
 @app.route(f"/{TOKEN_TELEGRAM}", methods=["POST"])
 def webhook():
-    update = telebot.types.Update_de_json(request.get_data().decode('utf-8'))
+    update = telebot.types.Update.de_json(request.get_data().decode("utf-8"))
     bot.process_new_updates([update])
-    return '', 200
+    return "", 200
 
 @app.route("/")
 def index():
