@@ -124,12 +124,12 @@ def revisar_comentarios():
 # MOTOR
 # ---------------------------------------------------------
 def motor():
+    time.sleep(5)  # ← IMPORTANTE: evita posts absurdos al despertar Render
     while True:
         try:
             ahora = time.time()
             ultimo = obtener_timestamp()
 
-            # 30 minutos (para pruebas)
             if ultimo == 0 or (ahora - ultimo >= 30 * 60):
                 publicar()
                 socializar()
@@ -176,3 +176,4 @@ def comandos(message):
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
+
