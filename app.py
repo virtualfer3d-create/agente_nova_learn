@@ -183,7 +183,7 @@ def cmd(m):
         threading.Thread(target=publicar, args=(tema,), daemon=True).start()   # ← CAMBIO 3
         bot.reply_to(m, "Publicado (en segundo plano).")
 
-    elif "socializar" in m.text:
+    elif m.text.startswith("/socializar"):
         threading.Thread(target=socializar, daemon=True).start()               # ← CAMBIO 3
         bot.reply_to(m, "Socializado (en segundo plano).")
 
