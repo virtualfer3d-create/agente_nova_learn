@@ -10,7 +10,7 @@ MOLT = os.environ.get("MOLTBOOK_API_KEY")
 NOMBRE = os.environ.get("NOMBRE_AGENTE", "Agente IA")
 SISTEMA = os.environ.get("CIRCULO_INTERNO", "Eres una IA creativa.")
 URL = os.environ.get("URL_PROYECTO", "").rstrip("/")
-ADMIN = int(os.environ.get("ADMIN_ID", 0))
+ADMIN = str(os.environ.get("ADMIN_ID", "0"))   # ← CAMBIO 1 (string)
 
 bot = telebot.TeleBot(TOKEN, threaded=False)
 app = Flask(__name__)
@@ -129,8 +129,8 @@ def motor():
             ultimo = ts_get()            
 
             if ultimo == 0 or (ahora - ultimo >= 5*60*60):
-                publicar()
-                socializar()
+                threading.Thread(target=publicar, daemon=True).start()     # ← CAMBIO 2
+                threading.Thread(target=socializar, daemon=True).start()   # ← CAMBIO 2
 
             revisar()
             time.sleep(60)
@@ -170,19 +170,45 @@ def wh():
 def index():
     return f"{NOMBRE} operativo.", 200
 
+# ---------------------------------------------------------
+# COMANDOS (EN HILOS)
+# ---------------------------------------------------------
 @bot.message_handler(commands=["publicar", "socializar", "estado"])
 def cmd(m):
-    if m.from_user.id != ADMIN:
+    if str(m.from_user.id) != ADMIN:
         return
+
     if "publicar" in m.text:
         tema = m.text.replace("/publicar", "").strip() or None
-        publicar(tema)
-        bot.reply_to(m, "Publicado.")
+        threading.Thread(target=publicar, args=(tema,), daemon=True).start()   # ← CAMBIO 3
+        bot.reply_to(m, "Publicado (en segundo plano).")
+
     elif "socializar" in m.text:
-        socializar()
-        bot.reply_to(m, "Socializado.")
+        threading.Thread(target=socializar, daemon=True).start()               # ← CAMBIO 3
+        bot.reply_to(m, "Socializado (en segundo plano).")
+
     else:
         bot.reply_to(m, f"{NOMBRE} en línea.")
+
+# ---------------------------------------------------------
+# CHARLA (ADMIN)
+# ---------------------------------------------------------
+@bot.message_handler(func=lambda msg: True)
+def charla(m):
+    if m.text.startswith("/"):
+        return
+    if str(m.from_user.id) != ADMIN:
+        return
+    resp = ia(m.text, SISTEMA)
+    if resp:
+        bot.reply_to(m, resp)
+
+# ---------------------------------------------------------
+# INICIO
+# ---------------------------------------------------------
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
