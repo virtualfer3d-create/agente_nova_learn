@@ -126,9 +126,9 @@ def motor():
     while True:
         try:
             ahora = time.time()
-            ultimo = ts_get()
+            ultimo = ts_get()            
 
-            if ultimo == 0 or (ahora - ultimo >= 30*60):
+            if ultimo == 0 or (ahora - ultimo >= 5*60*60):
                 publicar()
                 socializar()
 
