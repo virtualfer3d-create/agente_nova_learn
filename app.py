@@ -37,7 +37,7 @@ def ts_set():
 # ---------------------------------------------------------
 def ia(prompt, sistema=SISTEMA):
     payload = {
-        "model": "llama-3.1-8b-instant",
+        "model": "gpt-oss-20b",
         "messages": [
             {"role": "system", "content": sistema},
             {"role": "user", "content": prompt}
